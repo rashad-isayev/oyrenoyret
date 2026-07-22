@@ -35,6 +35,8 @@ try {
 
 requireHttpsUrl('NEXTAUTH_URL', { originOnly: true });
 requireLength('NEXTAUTH_SECRET', 32);
+requireLength('REGISTRATION_TOKEN_SECRET', 32);
+requireLength('GUARDIAN_VERIFICATION_SECRET', 32);
 requireLength('CRON_SECRET', 32);
 requireHttpsUrl('UPSTASH_REDIS_REST_URL');
 requireLength('UPSTASH_REDIS_REST_TOKEN', 16);
@@ -77,11 +79,20 @@ for (const [name, fallback] of [
     errors.push(`${name} must be a safe slash-separated object prefix.`);
   }
 }
-if (value('GUARDIAN_VERIFICATION_SECRET') && value('GUARDIAN_VERIFICATION_SECRET').length < 32) {
-  errors.push('GUARDIAN_VERIFICATION_SECRET must be at least 32 characters when set.');
-}
-if (value('REGISTRATION_TOKEN_SECRET') && value('REGISTRATION_TOKEN_SECRET').length < 32) {
-  errors.push('REGISTRATION_TOKEN_SECRET must be at least 32 characters when set.');
+const secretNames = [
+  'NEXTAUTH_SECRET',
+  'REGISTRATION_TOKEN_SECRET',
+  'GUARDIAN_VERIFICATION_SECRET',
+  'CRON_SECRET',
+];
+for (let index = 0; index < secretNames.length; index += 1) {
+  for (let compareIndex = index + 1; compareIndex < secretNames.length; compareIndex += 1) {
+    const first = secretNames[index];
+    const second = secretNames[compareIndex];
+    if (value(first) && value(first) === value(second)) {
+      errors.push(`${first} and ${second} must use different values.`);
+    }
+  }
 }
 if (value('EMAIL_DEV_LOG_ONLY') === '1') errors.push('EMAIL_DEV_LOG_ONLY cannot be enabled in production.');
 if (/^(?:0|false)$/i.test(value('PG_SSL'))) errors.push('PG_SSL cannot disable TLS in production.');
@@ -90,6 +101,11 @@ if (/^(?:0|false)$/i.test(value('PG_SSL_REJECT_UNAUTHORIZED'))) {
 }
 if (value('PG_SSLMODE') && !/^(?:require|verify-ca|verify-full)$/i.test(value('PG_SSLMODE'))) {
   errors.push('PG_SSLMODE must require TLS in production.');
+}
+
+const presignTtl = Number(value('R2_PRESIGN_TTL_SECONDS') || '300');
+if (!Number.isInteger(presignTtl) || presignTtl < 30 || presignTtl > 900) {
+  errors.push('R2_PRESIGN_TTL_SECONDS must be an integer from 30 through 900.');
 }
 
 const trustedHeader = value('TRUSTED_PROXY_IP_HEADER');

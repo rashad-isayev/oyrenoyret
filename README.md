@@ -157,6 +157,8 @@ Rate limiting is implemented server-side. In production, configure Upstash Redis
 
 ## 🚀 Deployment
 
+Use the mandatory [deployment readiness runbook](docs/DEPLOYMENT_READINESS.md) before changing a staging or production database.
+
 1. Set production environment variables
 2. Run database migrations (`npx prisma migrate deploy`)
 3. Build the application: `npm run build`

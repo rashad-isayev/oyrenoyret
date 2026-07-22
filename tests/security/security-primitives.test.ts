@@ -14,6 +14,7 @@ import {
 import { hasValidBearerSecret } from '../../src/security/bearer-secret.ts';
 import { getR2ObjectPrefix } from '../../src/security/object-key.ts';
 import { getAnnouncementImageSrc } from '../../src/lib/announcement-images.ts';
+import { isTrustedWriteRequest } from '../../src/security/write-request.ts';
 
 function setEnvironment(name: string, value: string | undefined) {
   if (value === undefined) delete process.env[name];
@@ -125,4 +126,24 @@ test('announcement images stay inside the configured private namespace', () => {
   assert.equal(getAnnouncementImageSrc(valid, 'other/announcements'), null);
   assert.equal(getAnnouncementImageSrc(`${valid}&key=${encodeURIComponent(key)}`), null);
   assert.equal(getAnnouncementImageSrc('/api/uploads/announcements/file?key=../public/file.webp'), null);
+});
+
+test('write-origin checks allow only same-origin browsers or authenticated cron calls', () => {
+  const trustedOrigin = 'https://oyrenoyret.org';
+  const cronSecret = 'cron-secret-that-is-at-least-32-characters';
+  const check = (pathname: string, headers: Record<string, string>) =>
+    isTrustedWriteRequest({ pathname, headers: new Headers(headers) }, trustedOrigin, cronSecret);
+
+  assert.equal(check('/api/settings/profile', { origin: trustedOrigin }), true);
+  assert.equal(check('/api/settings/profile', { origin: 'https://attacker.invalid' }), false);
+  assert.equal(check('/api/settings/profile', { 'sec-fetch-site': 'same-origin' }), true);
+  assert.equal(check('/api/settings/profile', {}), false);
+  assert.equal(
+    check('/api/cron/archive-discussions', { authorization: `Bearer ${cronSecret}` }),
+    true,
+  );
+  assert.equal(
+    check('/api/cron/archive-discussions', { authorization: 'Bearer wrong-secret' }),
+    false,
+  );
 });

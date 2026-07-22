@@ -58,6 +58,8 @@ const envSchema = z.object({
   if (env.NODE_ENV !== 'production') return;
   const required: Array<keyof typeof env> = [
     'NEXTAUTH_URL',
+    'REGISTRATION_TOKEN_SECRET',
+    'GUARDIAN_VERIFICATION_SECRET',
     'CRON_SECRET',
     'RESEND_API_KEY',
     'EMAIL_FROM',

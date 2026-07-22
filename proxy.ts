@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getTrustedAppOrigin } from '@/src/security/request-origin';
-import { hasValidBearerSecret } from '@/src/security/bearer-secret';
+import { isTrustedWriteRequest } from '@/src/security/write-request';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -21,15 +21,13 @@ export function proxy(request: NextRequest) {
     );
   }
 
-  const origin = request.headers.get('origin');
-  const fetchSite = request.headers.get('sec-fetch-site');
-  const sameOrigin = origin === trustedOrigin || (!origin && fetchSite === 'same-origin');
-  const trustedCron =
-    request.nextUrl.pathname.startsWith('/api/cron/') &&
-    !origin &&
-    hasValidBearerSecret(request.headers.get('authorization'), process.env.CRON_SECRET);
-
-  if (!sameOrigin && !trustedCron) {
+  if (
+    !isTrustedWriteRequest(
+      { headers: request.headers, pathname: request.nextUrl.pathname },
+      trustedOrigin,
+      process.env.CRON_SECRET,
+    )
+  ) {
     return NextResponse.json(
       { success: false, error: 'Cross-origin request rejected.' },
       {

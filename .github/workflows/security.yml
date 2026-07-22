@@ -37,6 +37,9 @@ jobs:
       - name: Generate the database client
         run: npm run db:generate
 
+      - name: Validate the database schema
+        run: npx prisma validate
+
       - name: Scan current files and Git history for secrets
         run: npm run security:scan:history
 
@@ -51,3 +54,6 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Production build
+        run: npm run build

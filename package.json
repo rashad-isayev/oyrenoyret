@@ -25,9 +25,14 @@
     "security:scan": "node scripts/security-scan.mjs",
     "security:scan:history": "node scripts/security-scan.mjs --history=HEAD",
     "security:audit": "npm audit --omit=dev --audit-level=low",
+    "security:smoke": "node scripts/security-http-smoke.mjs",
     "test:security": "node --test --experimental-strip-types tests/security/*.test.ts",
     "env:check": "node scripts/validate-env.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:security-preflight": "node scripts/db-security-preflight.mjs",
+    "db:backup:local": "node scripts/backup-database.mjs",
+    "db:verify-backup": "node scripts/verify-database-backup.mjs",
+    "readiness:check": "node scripts/release-check.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1092.0",
