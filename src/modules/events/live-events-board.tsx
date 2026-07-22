@@ -1,0 +1,459 @@
+'use client';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { toast } from 'sonner';
+import { PiCalendar as Calendar, PiClock as Clock, PiCoins as Coins, PiCheckCircle as CheckCircle2, PiWarningCircle as AlertCircle } from 'react-icons/pi';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { DifficultyBars, MaterialDifficulty } from '@/src/modules/materials/difficulty-bars';
+import { useI18n } from '@/src/i18n/i18n-provider';
+import { useSettings } from '@/src/components/settings/settings-provider';
+import { getLocaleCode } from '@/src/i18n';
+import { extractErrorMessage, formatErrorToast } from '@/src/lib/error-toast';
+import { useCurrentUser } from '@/src/modules/auth/components/current-user-context';
+import { getWriteRestrictionMessage } from '@/src/lib/write-restriction';
+import { dispatchNotificationsUnreadUpdated } from '@/src/lib/notifications-events';
+
+interface LiveEvent {
+  id: string;
+  topic: string;
+  date: string;
+  durationMinutes: number;
+  difficulty: MaterialDifficulty | null;
+  creditCost: number;
+  type: string;
+  enrollmentStatus: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | null;
+  hasPayout?: boolean | null;
+  maxParticipants?: number | null;
+  slotsTaken?: number;
+  isOngoing?: boolean;
+  isFull?: boolean;
+}
+
+function EventCardSkeleton() {
+  return (
+    <div className="card-frame bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <Skeleton className="h-4 w-44" />
+        <Skeleton className="h-4 w-16" />
+      </div>
+      <Skeleton className="h-3 w-24" />
+      <div className="flex flex-wrap gap-2">
+        <Skeleton className="h-5 w-24 rounded-full" />
+        <Skeleton className="h-5 w-20 rounded-full" />
+        <Skeleton className="h-5 w-32 rounded-full" />
+        <Skeleton className="h-5 w-20 rounded-full" />
+      </div>
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-7 w-28" />
+      </div>
+    </div>
+  );
+}
+
+export function LiveEventsBoard() {
+  const { messages } = useI18n();
+  const copy = messages.liveActivities.board;
+  const { canWrite, writeRestriction } = useCurrentUser();
+  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [allEventsPage, setAllEventsPage] = useState(1);
+  const pageSize = 20;
+
+  const fetchEvents = () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.set('take', '200');
+    fetch(`/api/live-events?${params.toString()}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setEvents(Array.isArray(data) ? data : []))
+      .catch(() => setEvents([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  const myEvents = useMemo(
+    () => events.filter((event) => event.enrollmentStatus === 'CONFIRMED'),
+    [events],
+  );
+  const availableEvents = useMemo(
+    () => events.filter((event) => event.enrollmentStatus !== 'CONFIRMED'),
+    [events],
+  );
+  const hasNoEvents = events.length === 0;
+
+  const totalAllEventsPages = useMemo(
+    () => Math.max(1, Math.ceil(availableEvents.length / pageSize)),
+    [availableEvents.length],
+  );
+
+  useEffect(() => {
+    setAllEventsPage((prev) => Math.min(Math.max(prev, 1), totalAllEventsPages));
+  }, [totalAllEventsPages]);
+
+  const pagedAvailableEvents = useMemo(() => {
+    const start = (allEventsPage - 1) * pageSize;
+    return availableEvents.slice(start, start + pageSize);
+  }, [availableEvents, allEventsPage]);
+
+  const handleEnroll = async (eventId: string) => {
+    if (!canWrite) {
+      toast.error(getWriteRestrictionMessage(writeRestriction, messages.auth.errors.emailNotVerified));
+      return;
+    }
+    setActionId(eventId);
+    try {
+      const res = await fetch(`/api/live-events/${eventId}/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ liveEventId: eventId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const reason = extractErrorMessage(data);
+        if (res.status === 402) {
+          toast.error(formatErrorToast(copy.toastInsufficientCredits, reason));
+        } else {
+          toast.error(formatErrorToast(copy.toastFailedRegister, reason));
+        }
+        return;
+      }
+      const nextStatus = typeof data?.status === 'string' ? data.status : null;
+      const responseEventId =
+        typeof data?.eventId === 'string' && data.eventId.trim().length > 0
+          ? data.eventId
+          : eventId;
+      if (nextStatus) {
+        setEvents((prev) =>
+          prev.map((event) =>
+            event.id === responseEventId
+              ? { ...event, enrollmentStatus: nextStatus as LiveEvent['enrollmentStatus'] }
+              : event
+          )
+        );
+      }
+      toast.success(
+        nextStatus === 'CONFIRMED'
+          ? copy.toastAlreadyEnrolled
+          : copy.toastRegistrationStarted
+      );
+      try {
+        const unreadRes = await fetch('/api/notifications/unread-count', { cache: 'no-store' });
+        if (unreadRes.ok) {
+          const unreadData = await unreadRes.json().catch(() => ({}));
+          const unreadCount =
+            typeof unreadData?.unreadCount === 'number' ? unreadData.unreadCount : 0;
+          dispatchNotificationsUnreadUpdated(unreadCount);
+        }
+      } catch {
+        /* ignore */
+      }
+      fetchEvents();
+    } catch (error) {
+      toast.error(
+        formatErrorToast(
+          copy.toastFailedRegister,
+          error instanceof Error ? error.message : null,
+        ),
+      );
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-medium text-foreground">{copy.myEventsTitle}</h2>
+            <p className="text-xs text-muted-foreground">
+              {copy.myEventsSubtitle}
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {copy.enrolledCount.replace('{{count}}', String(myEvents.length))}
+          </span>
+        </div>
+        {loading ? (
+          <div className="grid gap-4">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <EventCardSkeleton key={`my-skeleton-${i}`} />
+            ))}
+          </div>
+        ) : myEvents.length === 0 ? (
+          <div className="card-frame border-dashed bg-muted/20 px-5 py-10 text-center">
+            {hasNoEvents ? (
+              <Calendar className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" />
+            ) : (
+              <CheckCircle2 className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" />
+            )}
+            <p className="text-sm font-medium text-muted-foreground">
+              {hasNoEvents ? copy.noLiveScheduled : copy.noConfirmedEvents}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground/70">
+              {hasNoEvents ? copy.noEventsHint : copy.noConfirmedHint}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {myEvents.map((event) => (
+              <LiveEventCard
+                key={event.id}
+                event={event}
+                actionId={actionId}
+                onEnroll={handleEnroll}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-medium text-foreground">{copy.allEventsTitle}</h2>
+          <p className="text-xs text-muted-foreground">
+            {copy.allEventsSubtitle}
+          </p>
+        </div>
+        {loading ? (
+          <div className="grid gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <EventCardSkeleton key={`all-skeleton-${i}`} />
+            ))}
+          </div>
+        ) : availableEvents.length === 0 ? (
+          <div className="card-frame border-dashed bg-muted/20 px-5 py-10 text-center">
+            <Calendar className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" />
+            <p className="text-sm font-medium text-muted-foreground">
+              {hasNoEvents ? copy.noLiveScheduled : copy.allEnrolled}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground/70">
+              {hasNoEvents ? copy.noEventsHint : copy.allEnrolledHint}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {pagedAvailableEvents.map((event) => (
+              <LiveEventCard
+                key={event.id}
+                event={event}
+                actionId={actionId}
+                onEnroll={handleEnroll}
+              />
+            ))}
+            {totalAllEventsPages > 1 ? (
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                {Array.from({ length: totalAllEventsPages }).map((_, i) => {
+                  const page = i + 1;
+                  const isActive = page === allEventsPage;
+                  return (
+                    <Button
+                      key={`all-events-page-${page}`}
+                      size="sm"
+                      variant={isActive ? 'primary' : 'outline'}
+                      aria-current={isActive ? 'page' : undefined}
+                      onClick={() => setAllEventsPage(page)}
+                    >
+                      {page}
+                    </Button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+interface LiveEventCardProps {
+  event: LiveEvent;
+  actionId: string | null;
+  onEnroll: (eventId: string) => void;
+}
+
+function LiveEventCard({ event, actionId, onEnroll }: LiveEventCardProps) {
+  const { locale, messages } = useI18n();
+  const { timeFormat } = useSettings();
+  const copy = messages.liveActivities.board;
+  const { canWrite } = useCurrentUser();
+  const eventDate = new Date(event.date);
+  const nowMs = Date.now();
+  const startMs = eventDate.getTime();
+  const endMs = startMs + event.durationMinutes * 60_000;
+  const isPending = event.enrollmentStatus === 'PENDING';
+  const isConfirmed = event.enrollmentStatus === 'CONFIRMED';
+  const isCancelled = event.enrollmentStatus === 'CANCELLED';
+  const isBusy = actionId === event.id;
+  const isOngoing = event.isOngoing ?? (startMs <= nowMs && endMs > nowMs);
+  const isOver = endMs <= nowMs;
+  const isEvaluating =
+    event.type === 'PROBLEM_SPRINT' && isOver && !(event.hasPayout ?? false);
+  const isFull = event.isFull ?? false;
+  const localeCode = getLocaleCode(locale);
+  const hour12 =
+    timeFormat === '12-hour' ? true : timeFormat === '24-hour' ? false : undefined;
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(localeCode, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+    [localeCode],
+  );
+  const timeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(localeCode, {
+        hour: 'numeric',
+        minute: '2-digit',
+        ...(hour12 === undefined ? {} : { hour12 }),
+      }),
+    [localeCode, hour12],
+  );
+
+  return (
+    <div className="card-frame bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium text-foreground">{event.topic}</h3>
+            {isConfirmed ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+                {copy.statusEnrolled}
+              </span>
+            ) : isPending ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+                {copy.statusVerification}
+              </span>
+            ) : isOngoing ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-600">
+                {copy.statusOngoing}
+              </span>
+            ) : isCancelled ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-600">
+                {copy.statusCancelled}
+              </span>
+            ) : isFull ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-600">
+                {copy.statusFull}
+              </span>
+            ) : null}
+            {isEvaluating ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-700/20 border-t-amber-700 dark:border-amber-400/20 dark:border-t-amber-400" />
+                {copy.statusEvaluating}
+              </span>
+            ) : isOver ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {copy.statusOver}
+              </span>
+            ) : null}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {event.type === 'EVENT' ? copy.eventTypeLiveEvent : copy.eventTypeProblemSprint}
+          </p>
+        </div>
+        <DifficultyBars difficulty={event.difficulty} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-foreground">
+          <Calendar className="h-3 w-3" />
+          {dateFormatter.format(eventDate)}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-foreground">
+          <Clock className="h-3 w-3" />
+          {timeFormatter.format(eventDate)}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-foreground">
+          <Clock className="h-3 w-3" />
+          {copy.durationLabel.replace('{{minutes}}', String(event.durationMinutes))}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-foreground">
+          <Coins className="h-3 w-3" />
+          {copy.creditsLabel.replace('{{count}}', String(Math.round(event.creditCost)))}
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        {isPending ? (
+          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertCircle className="h-4 w-4 text-amber-500" />
+            {copy.pendingNotice}
+          </div>
+        ) : isCancelled ? (
+          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertCircle className="h-4 w-4 text-rose-500" />
+            {copy.cancelledNotice}
+          </div>
+        ) : isEvaluating ? (
+          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground" />
+            {copy.evaluatingNotice}
+          </div>
+        ) : isOver ? (
+          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertCircle className="h-4 w-4" />
+            {copy.overNotice}
+          </div>
+        ) : isOngoing ? (
+          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertCircle className="h-4 w-4 text-sky-500" />
+            {copy.ongoingNotice}
+          </div>
+        ) : isFull ? (
+          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertCircle className="h-4 w-4 text-rose-500" />
+            {copy.fullNotice}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">{copy.readyNotice}</span>
+        )}
+
+        <div className="flex items-center gap-2">
+          {isConfirmed && event.type === 'PROBLEM_SPRINT' ? (
+            <Button asChild size="sm" variant="secondary-primary">
+              <Link href={`/cms/sprint/${event.id}`}>{copy.enterSprint}</Link>
+            </Button>
+          ) : isConfirmed ? (
+            <Button size="sm" variant="secondary" disabled>
+              {copy.enrolledLabel}
+            </Button>
+          ) : isPending ? (
+            <Button asChild size="sm" variant="secondary" disabled={isBusy}>
+              <Link href="/notifications">{copy.completeRegistration}</Link>
+            </Button>
+          ) : isEvaluating ? (
+            <Button size="sm" variant="secondary" disabled>
+              {copy.evaluatingLabel}
+            </Button>
+          ) : isOver ? (
+            <Button size="sm" variant="secondary" disabled>
+              {copy.overLabel}
+            </Button>
+          ) : isOngoing ? (
+            <Button size="sm" variant="secondary" disabled>
+              {copy.ongoingLabel}
+            </Button>
+          ) : isFull ? (
+            <Button size="sm" variant="secondary" disabled>
+              {copy.fullLabel}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => onEnroll(event.id)} disabled={isBusy || !canWrite}>
+              {isCancelled ? copy.registerAgain : copy.register}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

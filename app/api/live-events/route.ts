@@ -1,0 +1,395 @@
+/**
+ * Live Events API
+ *
+ * GET: List live events with current user's enrollment status
+ * POST: Create live event (staff only)
+ */
+
+import { NextResponse } from 'next/server';
+import type { LiveEventType } from '@prisma/client';
+import { prisma } from '@/src/db/client';
+import { getCurrentSession } from '@/src/modules/auth/utils/session';
+import { isStaff } from '@/src/lib/permissions';
+import { RATE_LIMITS } from '@/src/config/constants';
+import { getPrivateNoStoreHeaders } from '@/src/lib/http-cache';
+import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
+import { requireVerifiedEmailForWrite } from '@/src/modules/auth/utils/write-access';
+import { isDbSchemaMismatch } from '@/src/db/schema-mismatch';
+
+export async function GET(request: Request) {
+  try {
+    const identifier = getRateLimitIdentifier(request);
+    const rateLimit = await checkRateLimit(`live-events:list:${identifier}`, RATE_LIMITS.GENERAL);
+    if (!rateLimit.allowed) {
+      const { status, body, headers } = buildRateLimitResponse(rateLimit);
+      return NextResponse.json(body, { status, headers });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const takeParam = Number(searchParams.get('take') ?? 100);
+    const take = Number.isFinite(takeParam) ? Math.min(Math.max(takeParam, 1), 200) : 100;
+    const typeParam = searchParams.get('type');
+    const isLiveEventType = (value: string | null): value is LiveEventType =>
+      value === 'PROBLEM_SPRINT' || value === 'EVENT';
+    const type = isLiveEventType(typeParam) ? typeParam : null;
+
+    const userId = await getCurrentSession();
+    const now = new Date();
+
+    const events = await prisma.liveEvent.findMany({
+      where: {
+        deletedAt: null,
+        ...(type ? { type } : {}),
+      },
+      orderBy: { date: 'desc' },
+      take,
+      select: {
+        id: true,
+        topic: true,
+        date: true,
+        durationMinutes: true,
+        difficulty: true,
+        creditCost: true,
+        type: true,
+        maxParticipants: true,
+      },
+    });
+
+    const eventIds = events.map((event) => event.id);
+    const enrollments = userId && eventIds.length
+      ? await prisma.liveEventEnrollment.findMany({
+          where: { userId, liveEventId: { in: eventIds } },
+          select: { liveEventId: true, status: true },
+        })
+      : [];
+
+    const enrollmentMap = new Map(enrollments.map((item) => [item.liveEventId, item.status]));
+
+    const slotsTakenMap = new Map<string, number>();
+    if (eventIds.length) {
+      const grouped = await prisma.liveEventEnrollment.groupBy({
+        by: ['liveEventId'],
+        where: { liveEventId: { in: eventIds }, status: { in: ['PENDING', 'CONFIRMED'] } },
+        _count: { _all: true },
+      });
+      for (const row of grouped) {
+        slotsTakenMap.set(row.liveEventId, row._count._all);
+      }
+    }
+
+    const payoutReferenceIds: string[] = [];
+    for (const event of events) {
+      if (event.type !== 'PROBLEM_SPRINT') continue;
+      payoutReferenceIds.push(`${event.id}:rank:1`, `${event.id}:rank:2`, `${event.id}:rank:3`);
+    }
+
+    const paidOutSprintIds = new Set<string>();
+    if (payoutReferenceIds.length) {
+      const payouts = await prisma.creditTransaction.findMany({
+        where: {
+          type: 'SPRINT_PAYOUT',
+          referenceId: { in: payoutReferenceIds },
+        },
+        select: { referenceId: true },
+      });
+      for (const payout of payouts) {
+        if (!payout.referenceId) continue;
+        const sprintId = payout.referenceId.split(':rank:')[0];
+        if (sprintId) paidOutSprintIds.add(sprintId);
+      }
+    }
+
+    const nowMs = now.getTime();
+    const result = events.map((event) => {
+      const startMs = event.date.getTime();
+      const endMs = startMs + event.durationMinutes * 60_000;
+      const isOngoing = startMs <= nowMs && endMs > nowMs;
+      const slotsTaken = slotsTakenMap.get(event.id) ?? 0;
+      const maxParticipants =
+        event.maxParticipants === undefined ? null : (event.maxParticipants ?? null);
+      const isFull =
+        maxParticipants === null ? false : Number.isFinite(maxParticipants) ? slotsTaken >= maxParticipants : false;
+      return {
+        ...event,
+        maxParticipants,
+        slotsTaken,
+        isOngoing,
+        isFull,
+        enrollmentStatus: enrollmentMap.get(event.id) ?? null,
+        hasPayout: event.type === 'PROBLEM_SPRINT' ? paidOutSprintIds.has(event.id) : null,
+      };
+    });
+
+    // Sort to show upcoming/ongoing first (soonest first), and ended events last (most recent first).
+    // This keeps "All events" usable even when many ended events are included.
+    result.sort((a, b) => {
+      const aStart = a.date.getTime();
+      const bStart = b.date.getTime();
+      const aEnd = aStart + a.durationMinutes * 60_000;
+      const bEnd = bStart + b.durationMinutes * 60_000;
+      const aOver = aEnd <= nowMs;
+      const bOver = bEnd <= nowMs;
+      if (aOver !== bOver) return aOver ? 1 : -1;
+      return aOver ? bStart - aStart : aStart - bStart;
+    });
+
+    return NextResponse.json(result, { headers: getPrivateNoStoreHeaders() });
+  } catch (error) {
+    if (isDbSchemaMismatch(error)) {
+      return NextResponse.json(
+        { error: 'Live events are not available until database migrations are applied.' },
+        { status: 503, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    console.error('Error fetching live events:', error);
+    const message =
+      process.env.NODE_ENV === 'development' && error instanceof Error
+        ? error.message
+        : 'Internal server error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const userId = await getCurrentSession();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const verified = await requireVerifiedEmailForWrite(userId);
+    if (!verified.ok) {
+      const message = 'error' in verified ? verified.error : 'Unauthorized';
+      return NextResponse.json(
+        { error: message, errorKey: verified.errorKey },
+        { status: verified.status }
+      );
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+
+    if (!user || !isStaff(user.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const identifier = getRateLimitIdentifier(request, userId);
+    const rateLimit = await checkRateLimit(
+      `live-events:create:${identifier}`,
+      RATE_LIMITS.ADMIN_WRITE
+    );
+    if (!rateLimit.allowed) {
+      const { status, body, headers } = buildRateLimitResponse(rateLimit);
+      return NextResponse.json(body, { status, headers });
+    }
+
+    const body = await request.json();
+    const { sanitizeInput } = await import('@/src/security/validation');
+    const topic = typeof body.topic === 'string' ? sanitizeInput(body.topic) : '';
+    const date = body.date ? new Date(body.date) : null;
+    const durationMinutes = Number(body.durationMinutes);
+    const creditCost = Number(body.creditCost);
+    const isLiveEventType = (value: string | null): value is LiveEventType =>
+      value === 'PROBLEM_SPRINT' || value === 'EVENT';
+    const type = isLiveEventType(body?.type ?? null) ? body.type : 'PROBLEM_SPRINT';
+    const allowedDifficulties = ['BASIC', 'INTERMEDIATE', 'ADVANCED'];
+    const difficulty =
+      typeof body.difficulty === 'string' && allowedDifficulties.includes(body.difficulty)
+        ? body.difficulty
+        : null;
+    const maxParticipantsRaw = body?.maxParticipants;
+    const maxParticipants =
+      maxParticipantsRaw === null || maxParticipantsRaw === undefined || maxParticipantsRaw === ''
+        ? null
+        : Number(maxParticipantsRaw);
+    const prompt = typeof body?.prompt === 'string' ? sanitizeInput(body.prompt).slice(0, 20_000) : null;
+    const problemsRaw =
+      type === 'PROBLEM_SPRINT' && Array.isArray(body?.problems) ? (body.problems as any[]) : null;
+
+    const normalizeProblemType = (value: unknown): 'MULTIPLE_CHOICE' | 'SHORT_ANSWER' | null => {
+      const raw = typeof value === 'string' ? value.trim() : '';
+      if (raw === 'MULTIPLE_CHOICE' || raw === 'SHORT_ANSWER') return raw;
+      return null;
+    };
+
+    const normalizedProblems =
+      problemsRaw?.map((p, idx) => {
+        const problemType = normalizeProblemType(p?.type) ?? 'SHORT_ANSWER';
+        const problemPrompt =
+          typeof p?.prompt === 'string' ? sanitizeInput(p.prompt).slice(0, 20_000) : '';
+        const optionsRaw = Array.isArray(p?.options) ? (p.options as any[]) : [];
+        const options =
+          problemType === 'MULTIPLE_CHOICE'
+            ? optionsRaw
+                .map((o, j) => ({
+                  order: j + 1,
+                  text: typeof o?.text === 'string' ? sanitizeInput(o.text).slice(0, 2_000) : '',
+                  isCorrect: Boolean(o?.isCorrect),
+                }))
+                .filter((o) => o.text.trim().length > 0)
+            : [];
+
+        return {
+          order: idx + 1,
+          type: problemType,
+          prompt: problemPrompt,
+          options,
+        };
+      }) ?? null;
+
+    if (!topic) {
+      return NextResponse.json({ error: 'Topic is required' }, { status: 400 });
+    }
+    if (!date || Number.isNaN(date.getTime())) {
+      return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+    }
+    if (date.getTime() < Date.now()) {
+      return NextResponse.json({ error: 'Date must be in the future' }, { status: 400 });
+    }
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      return NextResponse.json({ error: 'Invalid duration' }, { status: 400 });
+    }
+    if (!Number.isInteger(durationMinutes)) {
+      return NextResponse.json(
+        { error: 'Duration must be a whole number of minutes' },
+        { status: 400 },
+      );
+    }
+    if (!Number.isFinite(creditCost) || creditCost < 0 || !Number.isInteger(creditCost)) {
+      return NextResponse.json({ error: 'Invalid credit cost' }, { status: 400 });
+    }
+    if (maxParticipants !== null) {
+      if (!Number.isFinite(maxParticipants) || !Number.isInteger(maxParticipants)) {
+        return NextResponse.json(
+          { error: 'maxParticipants must be a whole number' },
+          { status: 400 }
+        );
+      }
+      if (maxParticipants <= 0 || maxParticipants > 500) {
+        return NextResponse.json(
+          { error: 'maxParticipants must be between 1 and 500' },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (type === 'PROBLEM_SPRINT' && normalizedProblems) {
+      if (normalizedProblems.length === 0) {
+        return NextResponse.json({ error: 'At least one problem is required.' }, { status: 400 });
+      }
+      if (normalizedProblems.length > 30) {
+        return NextResponse.json({ error: 'Too many problems (max 30).' }, { status: 400 });
+      }
+      for (const p of normalizedProblems) {
+        if (!p.prompt.trim()) {
+          return NextResponse.json({ error: 'Each problem must have a prompt.' }, { status: 400 });
+        }
+        if (p.type === 'MULTIPLE_CHOICE') {
+          if (p.options.length < 2) {
+            return NextResponse.json(
+              { error: 'Multiple choice problems need at least 2 options.' },
+              { status: 400 }
+            );
+          }
+          if (p.options.length > 10) {
+            return NextResponse.json(
+              { error: 'Multiple choice problems support up to 10 options.' },
+              { status: 400 }
+            );
+          }
+          const correctCount = p.options.filter((o) => o.isCorrect).length;
+          if (correctCount !== 1) {
+            return NextResponse.json(
+              { error: 'Multiple choice problems must have exactly 1 correct option.' },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
+
+    const event = type === 'PROBLEM_SPRINT' && normalizedProblems
+      ? await prisma.$transaction(async (tx) => {
+          const created = await tx.liveEvent.create({
+            data: {
+              topic,
+              date,
+              durationMinutes,
+              difficulty,
+              creditCost,
+              type,
+              maxParticipants,
+              prompt: prompt,
+              createdById: userId,
+              problems: {
+                create: normalizedProblems.map((p) => ({
+                  order: p.order,
+                  type: p.type as any,
+                  prompt: p.prompt,
+                  options: p.type === 'MULTIPLE_CHOICE'
+                    ? {
+                        create: p.options.map((o) => ({
+                          order: o.order,
+                          text: o.text,
+                          isCorrect: o.isCorrect,
+                        })),
+                      }
+                    : undefined,
+                })),
+              },
+            },
+            select: {
+              id: true,
+              topic: true,
+              date: true,
+              durationMinutes: true,
+              difficulty: true,
+              creditCost: true,
+              type: true,
+              maxParticipants: true,
+            },
+          });
+          return created;
+        })
+      : await prisma.liveEvent.create({
+          data: {
+            topic,
+            date,
+            durationMinutes,
+            difficulty,
+            creditCost,
+            type,
+            maxParticipants,
+            prompt: type === 'PROBLEM_SPRINT' ? prompt : null,
+            createdById: userId,
+          },
+          select: {
+            id: true,
+            topic: true,
+            date: true,
+            durationMinutes: true,
+            difficulty: true,
+            creditCost: true,
+            type: true,
+            maxParticipants: true,
+          },
+        });
+
+    return NextResponse.json(event);
+  } catch (error) {
+    if (isDbSchemaMismatch(error)) {
+      return NextResponse.json(
+        { error: 'Live events are not available. Apply database migrations first.' },
+        { status: 503 },
+      );
+    }
+    console.error('Error creating live event:', error);
+    const message =
+      process.env.NODE_ENV === 'development' && error instanceof Error
+        ? error.message
+        : 'Internal server error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
