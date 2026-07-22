@@ -15,7 +15,7 @@
  *     node scripts/create-admin.mjs --email office@oyrenoyret.org --password-hash '$2b$12$...'
  */
 
-import 'dotenv/config';
+import './load-env.mjs';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';

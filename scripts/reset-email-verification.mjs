@@ -9,7 +9,7 @@
  * Uses DATABASE_URL from the environment.
  */
 
-import 'dotenv/config';
+import './load-env.mjs';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';

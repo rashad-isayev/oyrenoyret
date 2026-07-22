@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import 'dotenv/config';
+import './load-env.mjs';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

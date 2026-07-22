@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import 'dotenv/config';
+import './load-env.mjs';
 import { Pool } from 'pg';
 
 const allowRemote = process.argv.includes('--allow-remote');

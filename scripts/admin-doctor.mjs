@@ -18,7 +18,7 @@
  *   unset pw
  */
 
-import 'dotenv/config';
+import './load-env.mjs';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -118,4 +118,3 @@ main().catch((error) => {
   console.error('Admin doctor failed:', error?.message ?? error);
   process.exitCode = 1;
 });
-

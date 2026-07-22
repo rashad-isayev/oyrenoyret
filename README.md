@@ -49,7 +49,7 @@ This platform follows a **modular, domain-driven design** with clear separation 
 ### Prerequisites
 
 - Node.js 18+ 
-- PostgreSQL database
+- Docker Desktop (the recommended development database)
 - npm or yarn
 
 ### Installation
@@ -60,23 +60,33 @@ This platform follows a **modular, domain-driven design** with clear separation 
    ```
 
 2. Create a `.env` file (see `.env.example`) and set at minimum:
-   - `DATABASE_URL`
    - `NEXTAUTH_SECRET` (32+ chars)
 
-3. Set up the database:
+   The next command creates an ignored `.env.local` containing the development-only database connection. It refuses to overwrite a different database target.
+
+3. Start the dedicated local PostgreSQL container:
    ```bash
-   npm run db:migrate
+   npm run db:docker:up
    ```
 
-4. Generate Prisma client:
+   The development database listens only on `127.0.0.1:5434`, stores its data in a Docker volume, and is selected by the ignored `.env.local` file. It does not use or modify remote databases.
+
+4. Apply the committed migrations:
+   ```bash
+   npx prisma migrate deploy
+   ```
+
+5. Generate Prisma client:
    ```bash
    npm run db:generate
    ```
 
-5. Run the development server:
+6. Run the development server:
    ```bash
    npm run dev
    ```
+
+Use `npm run db:docker:down` to stop the database without deleting its data. Docker volume deletion is intentionally not included in a project script.
 
 ## 📁 Project Structure
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import 'dotenv/config';
+import './load-env.mjs';
 
 const errors = [];
 const value = (name) => String(process.env[name] ?? '').trim();
