@@ -17,7 +17,8 @@ import { issueEmailVerificationToken } from '@/src/modules/auth/utils/email-veri
 import { sendAccountVerificationEmail } from '@/src/modules/auth/services/email';
 import { getPublicErrorMessage } from '@/src/security/public-error';
 import { getTrustedAppOrigin } from '@/src/security/request-origin';
-import { requireActiveAccountForWrite } from '@/src/modules/auth/utils/write-access';
+import { requireAccountReadyForWrite } from '@/src/modules/auth/utils/write-access';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 const schema = z.object({
   email: z.string().email().max(254).toLowerCase().trim(),
@@ -31,11 +32,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, errorKey: 'unauthorized' }, { status: 401 });
     }
 
-    const verified = await requireActiveAccountForWrite(userId);
-    if (!verified.ok) {
+    const writeAccess = await requireAccountReadyForWrite(userId);
+    if (!writeAccess.ok) {
       return NextResponse.json(
-        { success: false, errorKey: verified.errorKey },
-        { status: verified.status, headers: getPrivateNoStoreHeaders() },
+        { success: false, errorKey: writeAccess.errorKey },
+        {
+          status: writeAccess.status,
+          headers: getPrivateNoStoreHeaders(),
+        },
       );
     }
 
@@ -46,8 +50,14 @@ export async function POST(request: Request) {
       return NextResponse.json(body, { status, headers });
     }
 
-    const raw = (await request.json().catch(() => ({}))) as unknown;
-    const parsed = schema.safeParse(raw);
+    const bodyResult = await readJsonBody(request, JSON_BODY_LIMITS.SMALL);
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { success: false, error: bodyResult.error },
+        { status: bodyResult.status, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const parsed = schema.safeParse(bodyResult.value);
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: 'Invalid email payload' },

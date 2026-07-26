@@ -2,18 +2,14 @@ import { normalizeLocale, type Locale } from '@/src/i18n';
 
 export const LANGUAGE_COOKIE = 'oy_lang';
 export const TIME_FORMAT_COOKIE = 'oy_time_format';
-export const NOTIFY_REPLIES_COOKIE = 'oy_notify_replies';
-export const NOTIFY_CREDITS_COOKIE = 'oy_notify_credits';
-export const NOTIFY_SPRINTS_COOKIE = 'oy_notify_sprints';
-export const NOTIFY_GUIDED_GROUP_SESSIONS_COOKIE = 'oy_notify_guided_group_sessions';
+export const TIME_ZONE_COOKIE = 'oy_time_zone';
 
 export type SettingsLanguage = Locale;
 
 export const TIME_FORMATS = ['auto', '12-hour', '24-hour'] as const;
 export type TimeFormat = (typeof TIME_FORMATS)[number];
+export type TimeZone = string;
 
-export type NotificationPreferenceKey = 'replies' | 'credits' | 'sprints' | 'guidedGroupSessions';
-export type NotificationPreferences = Record<NotificationPreferenceKey, boolean>;
 
 export function normalizeLanguage(value?: string): SettingsLanguage {
   return normalizeLocale(value);
@@ -24,25 +20,23 @@ export function normalizeTimeFormat(value?: string): TimeFormat {
   return 'auto';
 }
 
-function normalizeBoolean(value: string | undefined, defaultValue: boolean) {
-  if (value === undefined) return defaultValue;
-  if (value === '1' || value === 'true') return true;
-  if (value === '0' || value === 'false') return false;
-  return defaultValue;
+export function normalizeTimeZone(value?: unknown): TimeZone | undefined {
+  if (typeof value !== 'string') return undefined;
+
+  const candidate = value.trim();
+  if (!candidate || candidate.length > 100) return undefined;
+
+  try {
+    return new Intl.DateTimeFormat('en', { timeZone: candidate }).resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
 }
 
-export function normalizeNotifyReplies(value?: string) {
-  return normalizeBoolean(value, true);
-}
-
-export function normalizeNotifyCredits(value?: string) {
-  return normalizeBoolean(value, true);
-}
-
-export function normalizeNotifySprints(value?: string) {
-  return normalizeBoolean(value, true);
-}
-
-export function normalizeNotifyGuidedGroupSessions(value?: string) {
-  return normalizeBoolean(value, true);
+export function getSystemTimeZone(): TimeZone {
+  const timeZone = normalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  if (!timeZone) {
+    throw new RangeError('The current runtime did not provide a valid IANA time zone.');
+  }
+  return timeZone;
 }

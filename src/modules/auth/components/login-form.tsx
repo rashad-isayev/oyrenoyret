@@ -25,7 +25,6 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { PasswordInput } from '@/src/modules/auth/components/password-input';
-import { isStaff } from '@/src/lib/permissions';
 import { useI18n } from '@/src/i18n/i18n-provider';
 import { resolveAuthError } from '@/src/modules/auth/utils/resolve-auth-error';
 
@@ -52,10 +51,12 @@ export function LoginForm() {
       const result = await login(data);
 
       if (result.success) {
-        toast.success(copy.success);
-        const destination =
-          result.role && isStaff(result.role) ? '/admin/events' : '/dashboard';
-        router.push(destination);
+        if (result.requiresActivation) {
+          toast.success(copy.resume);
+        } else {
+          toast.success(copy.success);
+        }
+        router.push(result.destination || '/dashboard');
         router.refresh();
       } else {
         toast.error(resolveAuthError(messages, t, copy.failed, result));
@@ -68,27 +69,26 @@ export function LoginForm() {
   };
 
   return (
-    <div className="space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-3xl font-semibold tracking-tight">{copy.title}</h1>
-        <p className="text-sm text-muted-foreground">{copy.subtitle}</p>
+    <div className="space-y-8">
+      <header className="space-y-2 text-center">
+        <h1 className="text-[32px] font-semibold leading-10 tracking-[-0.04em]">{copy.title}</h1>
+        <p className="text-[15px] leading-6 text-muted-foreground">{copy.subtitle}</p>
       </header>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
           <FormField
             control={form.control}
             name="email"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-xs font-medium text-muted-foreground">
+                <FormLabel className="text-sm font-medium text-foreground">
                   {copy.emailLabel}
                 </FormLabel>
                 <FormControl>
                   <Input
                     type="email"
                     placeholder={placeholders.email}
-                    className="h-10 rounded-lg bg-background/70"
                     {...field}
                   />
                 </FormControl>
@@ -102,13 +102,12 @@ export function LoginForm() {
             name="password"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-xs font-medium text-muted-foreground">
+                <FormLabel className="text-sm font-medium text-foreground">
                   {copy.passwordLabel}
                 </FormLabel>
                 <FormControl>
                   <PasswordInput
                     placeholder={placeholders.password}
-                    className="h-10 rounded-lg bg-background/70"
                     {...field}
                   />
                 </FormControl>
@@ -117,8 +116,8 @@ export function LoginForm() {
               )}
             />
 
-          <div className="text-xs text-muted-foreground text-right">
-            <Link href="/forgot-password" className="text-primary hover:underline font-medium">
+          <div className="text-right text-sm text-muted-foreground">
+            <Link href="/forgot-password" className="font-medium text-foreground hover:underline">
               {copy.forgotPassword}
             </Link>
           </div>
@@ -127,7 +126,7 @@ export function LoginForm() {
             type="submit"
             variant="primary"
             size="lg"
-          className="h-10 w-full text-sm font-medium"
+          className="w-full"
           disabled={isSubmitting}
         >
           {isSubmitting ? copy.loggingIn : copy.login}

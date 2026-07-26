@@ -11,6 +11,7 @@ import { RATE_LIMITS } from '@/src/config/constants';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
 import { getPrivateNoStoreHeaders } from '@/src/lib/http-cache';
 import { hashPassword, validatePasswordStrength } from '@/src/modules/auth/utils/password';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('base64url');
@@ -25,7 +26,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json().catch(() => ({}))) as { token?: unknown; password?: unknown };
+    const bodyResult = await readJsonBody<{
+      token?: unknown;
+      password?: unknown;
+    }>(request, JSON_BODY_LIMITS.SMALL);
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { success: false, error: bodyResult.error },
+        { status: bodyResult.status, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const body = bodyResult.value;
     const token = typeof body.token === 'string' ? body.token.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
 

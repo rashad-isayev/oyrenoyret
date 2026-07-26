@@ -7,18 +7,19 @@
 
 'use server';
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/src/db/client';
-import { hashPassword } from '../utils/password';
+import { hashPassword, verifyPassword } from '../utils/password';
 import { getOrCreatePublicId } from '@/src/lib/public-id';
 import {
-  studentInfoSchema,
-  parentInfoSchema,
   verificationCodeSchema,
-  consentSchema,
-  type StudentInfoInput,
-  type ParentInfoInput,
   type VerificationCodeInput,
-  type ConsentInput,
+  onboardingAccountSchema,
+  pendingOnboardingEmailSchema,
+  onboardingGuidelinesSchema,
+  type OnboardingAccountInput,
+  type PendingOnboardingEmailInput,
+  type OnboardingGuidelinesInput,
 } from '../schemas/registration';
 import {
   generateVerificationCode,
@@ -29,463 +30,492 @@ import {
   verifyVerificationCode,
 } from '../utils/verification';
 import { sendVerificationCode } from '../services/email';
-import { createSession } from '../utils/session';
-import {
-  issueRegistrationToken,
-  requireRegistrationToken,
-  clearRegistrationToken,
-} from '../utils/registration-token';
-import { ensureDefaultCredits } from '@/src/modules/credits';
-import { CONSENT_VERSION } from '@/src/config/constants';
+import { logDevelopmentVerificationCode } from '../utils/development-email-log';
+import { createSession, getCurrentSession } from '../utils/session';
+import { CONSENT_VERSION, GUIDELINES_VERSION } from '@/src/config/constants';
 import { headers } from 'next/headers';
-import { recordDailyVisit } from '@/src/modules/visits';
 import { getRandomAvatarVariant } from '@/src/lib/avatar';
 import { getTrustedClientIpFromHeaders } from '@/src/security/rateLimiter';
+import { hasAcceptedCurrentGuidelines } from '@/src/modules/onboarding/account-setup-state';
+
+async function issueOnboardingVerificationCode(
+  userId: string,
+  email: string,
+) {
+  const code = generateVerificationCode();
+  const expiresAt = getCodeExpiryTime();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.registrationVerification.updateMany({
+      where: { userId, used: false },
+      data: { used: true },
+    });
+    await tx.registrationVerification.create({
+      data: {
+        userId,
+        email,
+        codeHash: hashVerificationCode(userId, email, code),
+        expiresAt,
+      },
+    });
+  });
+
+  logDevelopmentVerificationCode(email, code);
+  await sendVerificationCode(email, code);
+}
 
 /**
- * Step 1: Create student account with basic information
+ * Credentials are the durable account-creation boundary. Later setup stages
+ * are independent milestones so a user can sign in and safely resume them.
+ * Re-submitting from the correction flow updates only the current unfinished
+ * account and invalidates any code issued for the previous email.
  */
-export async function registerStudentInfo(data: StudentInfoInput) {
+export async function createOnboardingAccount(
+  data: OnboardingAccountInput,
+) {
   try {
     const { checkRegistrationRateLimit } = await import('./rate-limit');
     const rateLimit = await checkRegistrationRateLimit();
     if (!rateLimit.allowed) {
       const minutes = Math.ceil(
-        (rateLimit.resetAt.getTime() - Date.now()) / 1000 / 60
+        (rateLimit.resetAt.getTime() - Date.now()) / 1000 / 60,
       );
       return {
-        success: false,
+        success: false as const,
         errorKey: 'registrationRateLimit',
         errorVars: { minutes },
       };
     }
 
-    // Validate input
-    const validated = studentInfoSchema.parse(data);
-
-    // Check if email already exists
+    const validated = onboardingAccountSchema.parse(data);
+    const sessionUserId = await getCurrentSession();
+    const sessionUser = sessionUserId
+      ? await prisma.user.findFirst({
+          where: {
+            id: sessionUserId,
+            deletedAt: null,
+            guidelinesAcceptedAt: null,
+            registrationCompletedAt: null,
+          },
+          select: { id: true, email: true },
+        })
+      : null;
+    if (sessionUserId && !sessionUser) {
+      return { success: false as const, errorKey: 'unauthorized' };
+    }
     const existingUser = await prisma.user.findUnique({
       where: { email: validated.email },
+      select: { id: true, deletedAt: true },
     });
-
-    if (existingUser) {
-      return {
-        success: false,
-        errorKey: 'emailExists',
-      };
-    }
-
-    // Hash password
-    const passwordHash = await hashPassword(validated.password);
-
-    // Create user with INACTIVE status (will be activated after registration completes)
-    const user = await prisma.user.create({
-      data: {
-        email: validated.email,
-        passwordHash,
-        firstName: validated.firstName,
-        lastName: validated.lastName,
-        grade: validated.grade,
-        role: 'STUDENT',
-        status: 'INACTIVE',
-        registrationStep: 2, // Move to step 2
-        avatarVariant: getRandomAvatarVariant(),
-      },
-    });
-    await getOrCreatePublicId(user.id);
-    await issueRegistrationToken(user.id);
-
-    return {
-      success: true,
-      userId: user.id,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      errorKey: 'registrationUnexpected',
-    };
-  }
-}
-
-/**
- * Step 2: Add parent/guardian information
- */
-export async function registerParentInfo(userId: string, data: ParentInfoInput) {
-  try {
-    const tokenCheck = await requireRegistrationToken(userId);
-    if (!tokenCheck.ok) {
-      return {
-        success: false,
-        errorKey: tokenCheck.errorKey,
-      };
-    }
-
-    // Validate input
-    const validated = parentInfoSchema.parse(data);
-
-    // Get user to check student email
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true, status: true, registrationStep: true, deletedAt: true },
-    });
-
     if (
-      !user ||
-      user.deletedAt ||
-      user.status !== 'INACTIVE' ||
-      ![2, 3].includes(user.registrationStep)
+      existingUser &&
+      (!sessionUser || existingUser.id !== sessionUser.id)
     ) {
       return {
-        success: false,
-        errorKey: 'userNotFound',
+        success: false as const,
+        errorKey: 'emailExistsResume',
       };
     }
 
-    // Check if parent email is different from student email
-    if (validated.parentEmail === user.email) {
-      return {
-        success: false,
-        errorKey: 'parentEmailSame',
-      };
+    const accountOwnerType =
+      validated.declaredAge < 16 ? ('GUARDIAN' as const) : ('SELF' as const);
+    const passwordHash = await hashPassword(validated.password);
+    const accountData = {
+      email: validated.email,
+      passwordHash,
+      firstName: validated.firstName,
+      lastName: validated.lastName || null,
+      role: 'STUDENT' as const,
+      status: 'INACTIVE' as const,
+      registrationStep: 2,
+      learningMotivation: validated.learningMotivation,
+      weeklyLearningGoal: validated.weeklyLearningGoal,
+      declaredAge: validated.declaredAge,
+      accountOwnerType,
+      emailVerifiedAt: null,
+      parentEmail:
+        accountOwnerType === 'GUARDIAN' ? validated.email : null,
+    };
+
+    const account = sessionUser
+      ? await prisma.user.update({
+          where: { id: sessionUser.id },
+          data: accountData,
+          select: { id: true, email: true },
+        })
+      : await prisma.user.create({
+          data: {
+            ...accountData,
+            onboardingStartedAt: new Date(),
+            avatarVariant: getRandomAvatarVariant(),
+          },
+          select: { id: true, email: true },
+        });
+
+    await prisma.registrationVerification.updateMany({
+      where: { userId: account.id, used: false },
+      data: { used: true },
+    });
+    await getOrCreatePublicId(account.id);
+
+    if (!sessionUser) {
+      const headersList = await headers();
+      const ipAddress =
+        getTrustedClientIpFromHeaders(headersList) || undefined;
+      const userAgent = headersList.get('user-agent') || undefined;
+      await createSession(account.id, ipAddress, userAgent);
     }
 
-    // Update user with parent information
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        parentEmail: validated.parentEmail,
-        parentFirstName: validated.parentFirstName,
-        parentLastName: validated.parentLastName,
-        registrationStep: 3, // Move to verification step
-      },
-    });
-
-    // Invalidate any existing codes if the parent email was updated/re-submitted
-    await prisma.guardianVerification.updateMany({
-      where: {
-        userId,
-        used: false,
-      },
-      data: {
-        used: true,
-      },
-    });
-    await issueRegistrationToken(userId);
+    let codeSent = true;
+    try {
+      await issueOnboardingVerificationCode(account.id, account.email);
+    } catch {
+      codeSent = false;
+    }
 
     return {
-      success: true,
+      success: true as const,
+      userId: account.id,
+      email: account.email,
+      accountOwnerType,
+      codeSent,
     };
   } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      return {
+        success: false as const,
+        errorKey: 'emailExistsResume',
+      };
+    }
+    console.error('Failed to create onboarding account:', error);
     return {
-      success: false,
+      success: false as const,
       errorKey: 'registrationUnexpected',
     };
   }
 }
 
 /**
- * Step 3: Send verification code to parent email
+ * Correct the login email of an authenticated, unverified onboarding account.
+ * Re-authentication prevents a stale or borrowed session from changing the
+ * account identifier, while preserving the same durable user record.
  */
-export async function sendParentVerificationCode(userId: string) {
+export async function changePendingOnboardingEmail(
+  userId: string,
+  data: PendingOnboardingEmailInput,
+) {
   try {
-    const tokenCheck = await requireRegistrationToken(userId);
-    if (!tokenCheck.ok) {
+    const sessionUserId = await getCurrentSession();
+    if (!sessionUserId || sessionUserId !== userId) {
+      return { success: false as const, errorKey: 'unauthorized' };
+    }
+
+    const { checkRegistrationRateLimit } = await import('./rate-limit');
+    const rateLimit = await checkRegistrationRateLimit();
+    if (!rateLimit.allowed) {
+      const minutes = Math.ceil(
+        (rateLimit.resetAt.getTime() - Date.now()) / 1000 / 60,
+      );
       return {
-        success: false,
-        errorKey: tokenCheck.errorKey,
+        success: false as const,
+        errorKey: 'registrationRateLimit',
+        errorVars: { minutes },
       };
     }
 
-    // Check rate limit (server-side)
+    const validated = pendingOnboardingEmailSchema.parse(data);
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        deletedAt: null,
+        emailVerifiedAt: null,
+        guidelinesAcceptedAt: null,
+      },
+      select: { id: true, email: true, passwordHash: true },
+    });
+    if (!user || !user.passwordHash) {
+      return { success: false as const, errorKey: 'userNotFound' };
+    }
+    if (!(await verifyPassword(validated.password, user.passwordHash))) {
+      return { success: false as const, errorKey: 'invalidCredentials' };
+    }
+
+    const emailOwner = await prisma.user.findUnique({
+      where: { email: validated.email },
+      select: { id: true },
+    });
+    if (emailOwner && emailOwner.id !== user.id) {
+      return { success: false as const, errorKey: 'emailExistsResume' };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({
+        where: {
+          id: user.id,
+          deletedAt: null,
+          emailVerifiedAt: null,
+          guidelinesAcceptedAt: null,
+        },
+        data: { email: validated.email, registrationStep: 2 },
+      });
+      if (updated.count !== 1) throw new Error('ACCOUNT_STATE_CHANGED');
+
+      await tx.registrationVerification.updateMany({
+        where: { userId: user.id, used: false },
+        data: { used: true },
+      });
+    });
+
+    let codeSent = true;
+    try {
+      await issueOnboardingVerificationCode(user.id, validated.email);
+    } catch {
+      codeSent = false;
+    }
+
+    return {
+      success: true as const,
+      email: validated.email,
+      codeSent,
+    };
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      return { success: false as const, errorKey: 'emailExistsResume' };
+    }
+    return { success: false as const, errorKey: 'registrationUnexpected' };
+  }
+}
+
+export async function sendOnboardingVerificationCode(
+  userId: string,
+) {
+  try {
+    const sessionUserId = await getCurrentSession();
+    if (!sessionUserId || sessionUserId !== userId) {
+      return { success: false as const, errorKey: 'unauthorized' };
+    }
+
     const { checkVerificationResendRateLimit } = await import('./rate-limit');
     const rateLimit = await checkVerificationResendRateLimit();
-
     if (!rateLimit.allowed) {
       const minutes = Math.ceil(
-        (rateLimit.resetAt.getTime() - Date.now()) / 1000 / 60
+        (rateLimit.resetAt.getTime() - Date.now()) / 1000 / 60,
       );
       return {
-        success: false,
+        success: false as const,
         errorKey: 'verificationRateLimit',
         errorVars: { minutes },
       };
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { parentEmail: true, status: true, registrationStep: true, deletedAt: true },
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        deletedAt: null,
+        emailVerifiedAt: null,
+      },
+      select: { email: true },
     });
-
-    if (
-      !user ||
-      user.deletedAt ||
-      !user.parentEmail ||
-      user.status !== 'INACTIVE' ||
-      user.registrationStep !== 3
-    ) {
-      return {
-        success: false,
-        errorKey: 'parentEmailNotFound',
-      };
+    if (!user) {
+      return { success: false as const, errorKey: 'userNotFound' };
     }
 
-    // Invalidate any existing unverified codes
-    await prisma.guardianVerification.updateMany({
-      where: {
-        userId,
-        verifiedAt: null,
-        used: false,
-      },
-      data: {
-        used: true, // Mark as used to invalidate
-      },
-    });
-
-    // Generate new verification code
-    const code = generateVerificationCode();
-    const expiresAt = getCodeExpiryTime();
-
-    // Store verification code
-    await prisma.guardianVerification.create({
-      data: {
-        userId,
-        parentEmail: user.parentEmail,
-        codeHash: hashVerificationCode(userId, user.parentEmail, code),
-        expiresAt,
-      },
-    });
-
-    // Send email
-    await sendVerificationCode(user.parentEmail, code);
-
+    await issueOnboardingVerificationCode(userId, user.email);
+    return { success: true as const };
+  } catch {
     return {
-      success: true,
-    };
-  } catch (error) {
-    return {
-      success: false,
+      success: false as const,
       errorKey: 'verificationSendFailed',
     };
   }
 }
 
-/**
- * Step 3: Verify parent email with code
- */
-export async function verifyParentEmail(userId: string, data: VerificationCodeInput) {
+export async function verifyOnboardingEmail(
+  userId: string,
+  data: VerificationCodeInput,
+) {
   try {
-    const tokenCheck = await requireRegistrationToken(userId);
-    if (!tokenCheck.ok) {
-      return {
-        success: false,
-        errorKey: tokenCheck.errorKey,
-      };
+    const sessionUserId = await getCurrentSession();
+    if (!sessionUserId || sessionUserId !== userId) {
+      return { success: false as const, errorKey: 'unauthorized' };
     }
 
-    // Validate input
     const validated = verificationCodeSchema.parse(data);
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { parentEmail: true, status: true, registrationStep: true, deletedAt: true },
+    const user = await prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { email: true, emailVerifiedAt: true },
     });
-
-    if (
-      !user ||
-      user.deletedAt ||
-      !user.parentEmail ||
-      user.status !== 'INACTIVE' ||
-      user.registrationStep !== 3
-    ) {
-      return {
-        success: false,
-        errorKey: 'userOrParentNotFound',
-      };
+    if (!user) {
+      return { success: false as const, errorKey: 'userNotFound' };
     }
-
-    // Fetch the active record without querying by the user-supplied code.
-    const verification = await prisma.guardianVerification.findFirst({
+    if (user.emailVerifiedAt) {
+      return { success: true as const };
+    }
+    const verification = await prisma.registrationVerification.findFirst({
       where: {
         userId,
-        parentEmail: user.parentEmail,
+        email: user.email,
         used: false,
+        verifiedAt: null,
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: { createdAt: 'desc' },
     });
-
     if (!verification) {
-      return {
-        success: false,
-        errorKey: 'verificationInvalid',
-      };
+      return { success: false as const, errorKey: 'verificationInvalid' };
     }
-
-    // Check if code is expired
     if (isCodeExpired(verification.expiresAt)) {
-      return {
-        success: false,
-        errorKey: 'verificationExpired',
-      };
+      return { success: false as const, errorKey: 'verificationExpired' };
     }
-
-    // Check attempts
     if (verification.attempts >= getMaxVerificationAttempts()) {
-      return {
-        success: false,
-        errorKey: 'verificationTooMany',
-      };
+      return { success: false as const, errorKey: 'verificationTooMany' };
     }
 
-    if (!verifyVerificationCode(userId, user.parentEmail, validated.code, verification.codeHash)) {
+    if (
+      !verifyVerificationCode(
+        userId,
+        user.email,
+        validated.code,
+        verification.codeHash,
+      )
+    ) {
       const failedAttempts = verification.attempts + 1;
-      await prisma.guardianVerification.updateMany({
-        where: { id: verification.id, used: false },
-        data: {
-          attempts: { increment: 1 },
-          used: failedAttempts >= getMaxVerificationAttempts(),
-        },
-      });
-      return {
-        success: false,
-        errorKey:
-          failedAttempts >= getMaxVerificationAttempts() ? 'verificationTooMany' : 'verificationInvalid',
-      };
-    }
-
-    await prisma.$transaction(async (tx) => {
-      const claimed = await tx.guardianVerification.updateMany({
+      await prisma.registrationVerification.updateMany({
         where: {
           id: verification.id,
           used: false,
-          attempts: { lt: getMaxVerificationAttempts() },
-          expiresAt: { gt: new Date() },
+          attempts: verification.attempts,
         },
-        data: { used: true, verifiedAt: new Date() },
+        data: { attempts: { increment: 1 } },
       });
-      if (claimed.count !== 1) throw new Error('VERIFICATION_CODE_ALREADY_USED');
+      return {
+        success: false as const,
+        errorKey:
+          failedAttempts >= getMaxVerificationAttempts()
+            ? 'verificationTooMany'
+            : 'verificationInvalid',
+      };
+    }
 
-      await tx.user.update({
-        where: { id: userId },
-        data: { registrationStep: 4 },
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.registrationVerification.updateMany({
+        where: {
+          id: verification.id,
+          used: false,
+          expiresAt: { gt: now },
+          attempts: { lt: getMaxVerificationAttempts() },
+        },
+        data: { used: true, verifiedAt: now },
       });
+      if (claimed.count !== 1) throw new Error('VERIFICATION_ALREADY_USED');
+
+      const updated = await tx.user.updateMany({
+        where: { id: userId, emailVerifiedAt: null, deletedAt: null },
+        data: { emailVerifiedAt: now, registrationStep: 3 },
+      });
+      if (updated.count !== 1) throw new Error('VERIFICATION_ALREADY_USED');
     });
-    await issueRegistrationToken(userId);
 
-    return {
-      success: true,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      errorKey: 'verificationFailed',
-    };
+    return { success: true as const };
+  } catch {
+    return { success: false as const, errorKey: 'verificationFailed' };
   }
 }
 
-/**
- * Step 4: Grant parental consent
- */
-export async function grantParentalConsent(userId: string, data: ConsentInput) {
+export async function acceptOnboardingGuidelines(
+  userId: string,
+  data: OnboardingGuidelinesInput,
+) {
   try {
-    const tokenCheck = await requireRegistrationToken(userId);
-    if (!tokenCheck.ok) {
-      return {
-        success: false,
-        errorKey: tokenCheck.errorKey,
-      };
+    const sessionUserId = await getCurrentSession();
+    if (!sessionUserId || sessionUserId !== userId) {
+      return { success: false as const, errorKey: 'unauthorized' };
     }
+    const validated = onboardingGuidelinesSchema.parse(data);
 
-    // Validate input
-    const validated = consentSchema.parse(data);
-
-    if (!validated.consentGranted) {
-      return {
-        success: false,
-        errorKey: 'consentRequired',
-      };
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { parentEmail: true, status: true, registrationStep: true, deletedAt: true },
-    });
-
-    if (
-      !user ||
-      user.deletedAt ||
-      !user.parentEmail ||
-      user.status !== 'INACTIVE' ||
-      user.registrationStep !== 4
-    ) {
-      return {
-        success: false,
-        errorKey: 'userOrParentNotFound',
-      };
-    }
-
-    const parentEmail = user.parentEmail;
-
-    // Require parent email verification before consent can be granted
-    const verified = await prisma.guardianVerification.findFirst({
+    const user = await prisma.user.findFirst({
       where: {
-        userId,
-        parentEmail,
-        verifiedAt: { not: null },
-      },
-      orderBy: {
-        verifiedAt: 'desc',
+        id: userId,
+        deletedAt: null,
+        emailVerifiedAt: { not: null },
       },
     });
+    if (!user) {
+      return { success: false as const, errorKey: 'userNotFound' };
+    }
+    const isInitialAcceptance = !user.guidelinesAcceptedAt;
+    if (
+      isInitialAcceptance &&
+      user.accountOwnerType === 'GUARDIAN' &&
+      validated.guardianAuthorityAccepted !== true
+    ) {
+      return { success: false as const, errorKey: 'consentRequired' };
+    }
+    const destination =
+      user.tutorialCompletedAt || user.tutorialSkippedAt
+        ? '/dashboard'
+        : '/welcome/onboarding';
 
-    if (!verified) {
-      return {
-        success: false,
-        errorKey: 'parentEmailNotVerified',
-      };
+    if (hasAcceptedCurrentGuidelines(user)) {
+      if (user.status === 'INACTIVE') {
+        await prisma.user.updateMany({
+          where: { id: userId, status: 'INACTIVE', deletedAt: null },
+          data: { status: 'ACTIVE' },
+        });
+      }
+      return { success: true as const, destination };
     }
 
-    // Grant the idempotent starting balance before atomically claiming the final step.
-    await ensureDefaultCredits(userId);
-
+    const now = new Date();
     await prisma.$transaction(async (tx) => {
-      const claimed = await tx.user.updateMany({
-        where: { id: userId, status: 'INACTIVE', registrationStep: 4 },
-        data: { status: 'ACTIVE', registrationStep: 5 },
-      });
-      if (claimed.count !== 1) throw new Error('REGISTRATION_ALREADY_COMPLETED');
-
-      await tx.parentalConsent.create({
+      const updated = await tx.user.updateMany({
+        where: {
+          id: userId,
+          deletedAt: null,
+          emailVerifiedAt: { not: null },
+        },
         data: {
-          userId,
-          parentEmail,
-          status: 'GRANTED',
-          consentVersion: CONSENT_VERSION,
-          grantedAt: new Date(),
+          ...(user.status === 'INACTIVE' ? { status: 'ACTIVE' as const } : {}),
+          ...(isInitialAcceptance
+            ? {
+                registrationStep: 4,
+                registrationCompletedAt: now,
+              }
+            : {}),
+          guidelinesAcceptedAt: now,
+          guidelinesVersion: GUIDELINES_VERSION,
         },
       });
+      if (updated.count !== 1) throw new Error('GUIDELINES_ALREADY_UPDATED');
+
+      if (isInitialAcceptance && user.accountOwnerType === 'GUARDIAN') {
+        const existingConsent = await tx.parentalConsent.findFirst({
+          where: { userId, status: 'GRANTED' },
+          select: { id: true },
+        });
+        if (!existingConsent) {
+          await tx.parentalConsent.create({
+            data: {
+              userId,
+              parentEmail: user.email,
+              status: 'GRANTED',
+              consentVersion: CONSENT_VERSION,
+              grantedAt: now,
+            },
+          });
+        }
+      }
     });
 
-    // Create session and redirect
-    const headersList = await headers();
-    const ipAddress = getTrustedClientIpFromHeaders(headersList) || undefined;
-    const userAgent = headersList.get('user-agent') || undefined;
-
-    await createSession(userId, ipAddress, userAgent);
-    await recordDailyVisit(userId);
-    await clearRegistrationToken();
-
-    // Email verification is not sent automatically after registration.
-    // Users can request it manually via the "Verify my email" button.
-
-    return {
-      success: true,
-    };
+    return { success: true as const, destination };
   } catch (error) {
-    return {
-      success: false,
-      errorKey: 'consentFailed',
-    };
+    console.error('Failed to accept onboarding guidelines:', error);
+    return { success: false as const, errorKey: 'consentFailed' };
   }
 }

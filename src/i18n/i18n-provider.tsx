@@ -1,9 +1,16 @@
 'use client';
 
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { usePathname } from 'next/navigation';
-import { createTranslator, getMessages, normalizeLocale, DEFAULT_LOCALE, type Locale, type Messages, type MessageKey, type TranslateVars } from '@/src/i18n';
+import { NextIntlClientProvider, useTranslations } from 'next-intl';
+import {
+  normalizeLocale,
+  type Locale,
+  type Messages,
+  type MessageKey,
+  type TranslateVars,
+} from '@/src/i18n';
+import { toIntlMessages } from '@/src/i18n/message-format';
 
 interface I18nContextValue {
   locale: Locale;
@@ -15,29 +22,57 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 
 interface I18nProviderProps {
   locale: Locale | string;
+  messages: Messages;
+  timeZone: string;
   children: ReactNode;
 }
 
-export function I18nProvider({ locale, children }: I18nProviderProps) {
-  const pathname = usePathname();
-  const forcedLocale = pathname.startsWith('/admin') ? 'en' : locale;
-  const resolvedLocale = normalizeLocale(forcedLocale);
+function I18nContextBridge({
+  locale,
+  messages,
+  children,
+}: {
+  locale: Locale;
+  messages: Messages;
+  children: ReactNode;
+}) {
+  const intlTranslate = useTranslations();
+  const t = useCallback(
+    (key: MessageKey, vars?: TranslateVars) => intlTranslate(key as never, vars as never),
+    [intlTranslate],
+  );
   const value = useMemo<I18nContextValue>(() => {
     return {
-      locale: resolvedLocale,
-      messages: getMessages(resolvedLocale),
-      t: createTranslator(resolvedLocale),
+      locale,
+      messages,
+      t,
     };
-  }, [resolvedLocale]);
+  }, [locale, messages, t]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+export function I18nProvider({ locale, messages, timeZone, children }: I18nProviderProps) {
+  const resolvedLocale = normalizeLocale(locale);
+  const intlMessages = useMemo(() => toIntlMessages(messages), [messages]);
+
+  return (
+    <NextIntlClientProvider
+      locale={resolvedLocale}
+      messages={intlMessages}
+      timeZone={timeZone}
+    >
+      <I18nContextBridge locale={resolvedLocale} messages={messages}>
+        {children}
+      </I18nContextBridge>
+    </NextIntlClientProvider>
+  );
 }
 
 export function useI18n(): I18nContextValue {
   const context = useContext(I18nContext);
   if (!context) {
-    const locale = DEFAULT_LOCALE;
-    return { locale, messages: getMessages(locale), t: createTranslator(locale) };
+    throw new Error('useI18n must be used within I18nProvider.');
   }
   return context;
 }

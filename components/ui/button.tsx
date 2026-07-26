@@ -1,7 +1,7 @@
-'use client';
-
 import * as React from 'react';
+import { Slot } from '@radix-ui/react-slot';
 import { cn } from '@/src/lib/utils';
+import { controlFocusStyles } from '@/components/ui/control-styles';
 
 /**
  * Button variants - use semantically:
@@ -12,8 +12,6 @@ import { cn } from '@/src/lib/utils';
  * - ghost:     Minimal/inline (inside cards, subtle, no border)
  * - danger:    Dangerous actions (delete, remove, irreversible)
  * - destructive: Alias of `danger` for compatibility
- * - success:   Success/completion (confirm, done)
- * - link:      Text-only links (resend, inline navigation)
  * - secondary-primary: Primary-tinted secondary (back/catalog nav: primary text, pastel primary bg)
  */
 export type ButtonVariant =
@@ -21,11 +19,20 @@ export type ButtonVariant =
   | 'secondary'
   | 'outline'
   | 'ghost'
+  | 'link'
   | 'danger'
   | 'destructive'
   | 'secondary-primary';
 
-export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon';
+export type ButtonSize =
+  | 'sm'
+  | 'md'
+  | 'lg'
+  | 'inline'
+  | 'icon-xs'
+  | 'icon-sm'
+  | 'icon'
+  | 'icon-wide';
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -35,32 +42,31 @@ export interface ButtonProps
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  // Primary: solid, minimal
   primary:
-    'bg-primary text-primary-foreground border border-primary/20 hover:bg-primary/90',
-  // Secondary: light background, minimal
+    'border border-transparent bg-primary text-primary-foreground shadow-[0_1px_2px_rgb(0_0_0/0.10)] hover:bg-primary/90 active:bg-primary/80',
   secondary:
-    'bg-secondary text-secondary-foreground hover:bg-secondary/70',
-  // Outline: bordered, minimal
+    'border border-transparent bg-secondary text-secondary-foreground hover:bg-accent active:bg-border/80',
   outline:
-    'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
-  // Ghost: minimal
-  ghost: 'text-foreground hover:bg-accent/70',
-  // Danger / destructive: red, minimal
+    'border border-border/70 bg-background text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.025)] hover:bg-secondary active:bg-accent',
+  ghost: 'border border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground active:bg-accent',
+  link: 'border border-transparent text-primary underline-offset-4 hover:underline',
   danger:
-    'bg-destructive text-destructive-foreground border border-destructive/20 hover:bg-destructive/90',
+    'border border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90',
   destructive:
-    'bg-destructive text-destructive-foreground border border-destructive/20 hover:bg-destructive/90',
-  // Secondary-primary: primary-colored text, pastel primary background (back/catalog nav)
+    'border border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90',
   'secondary-primary':
-    'bg-primary/10 text-primary hover:bg-primary/15 dark:bg-primary/15 dark:text-primary dark:hover:bg-primary/20',
+    'border border-transparent bg-primary/10 text-primary hover:bg-primary/15 active:bg-primary/20',
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: 'h-7 rounded-md px-2 py-1.5 text-xs',
-  md: 'h-8 rounded-md px-2.5 py-1.5 text-sm',
-  lg: 'h-9 rounded-md px-3 py-2 text-sm',
-  icon: 'h-8 w-8 shrink-0 p-0',
+  sm: 'h-9 rounded-full px-3.5 text-sm',
+  md: 'h-10 rounded-full px-4 text-sm',
+  lg: 'h-11 rounded-full px-5 text-sm',
+  inline: 'h-auto rounded-sm p-0 text-sm',
+  'icon-xs': 'h-8 w-8 shrink-0 rounded-full p-0',
+  'icon-sm': 'h-10 w-10 shrink-0 rounded-full p-0 sm:h-9 sm:w-9',
+  icon: 'h-11 w-11 shrink-0 rounded-full p-0 sm:h-10 sm:w-10',
+  'icon-wide': 'h-10 w-10 shrink-0 rounded-full p-0 sm:w-10',
 };
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -76,25 +82,25 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const base =
-      'inline-flex touch-manipulation items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0';
+      'inline-flex touch-manipulation items-center justify-center gap-2 whitespace-nowrap font-medium transition-[color,background-color,border-color,box-shadow,transform] duration-200 aria-pressed:bg-primary/10 aria-pressed:text-primary data-[active=true]:bg-primary/10 data-[active=true]:text-primary active:scale-[0.98] motion-reduce:transform-none disabled:pointer-events-none disabled:opacity-45 disabled:shadow-none [&_svg]:shrink-0';
 
-    const styles = cn(base, variantStyles[variant], sizeStyles[size], className);
+    const styles = cn(
+      base,
+      controlFocusStyles,
+      variantStyles[variant],
+      sizeStyles[size],
+      className,
+    );
 
-    if (asChild && React.isValidElement(children)) {
-      const child = children as React.ReactElement<{ className?: string }>;
-      return React.cloneElement(child, {
-        className: cn(styles, child.props.className),
-      });
-    }
-
+    const Component = asChild ? Slot : 'button';
     return (
-      <button
+      <Component
         ref={ref}
         className={styles}
         {...(props as React.ButtonHTMLAttributes<HTMLButtonElement>)}
       >
         {children}
-      </button>
+      </Component>
     );
   }
 );

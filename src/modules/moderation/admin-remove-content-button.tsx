@@ -14,11 +14,12 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { extractErrorMessage, formatErrorToast } from '@/src/lib/error-toast';
 import { useCurrentUser } from '@/src/modules/auth/components/current-user-context';
 import { useI18n } from '@/src/i18n/i18n-provider';
 
-type TargetType = 'MATERIAL' | 'DISCUSSION' | 'DISCUSSION_REPLY' | 'MATERIAL_COMMENT';
+type TargetType = 'DISCUSSION' | 'DISCUSSION_REPLY';
 
 export function AdminRemoveContentButton({
   targetType,
@@ -100,13 +101,13 @@ export function AdminRemoveContentButton({
 
           <div className="space-y-1">
             <Label htmlFor="remove-reason">Reason</Label>
-            <textarea
+            <Textarea
               id="remove-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               maxLength={2000}
               rows={4}
-              className="w-full max-h-[420px] overflow-y-auto rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              className="max-h-[420px] overflow-y-auto"
               placeholder="Required. This will be shown to the user."
             />
           </div>

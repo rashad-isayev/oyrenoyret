@@ -8,6 +8,7 @@ import type { ComponentProps } from 'react';
 import { useState } from 'react';
 import { PiEye as Eye, PiEyeSlash as EyeOff } from 'react-icons/pi';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/src/lib/utils';
 import { useI18n } from '@/src/i18n/i18n-provider';
 
@@ -31,13 +32,12 @@ export function PasswordInput({
         type={isVisible ? 'text' : 'password'}
         className={cn('pr-10', className)}
       />
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-sm"
         onClick={() => setIsVisible((prev) => !prev)}
-        className={cn(
-          'absolute right-3 top-1/2 -translate-y-1/2',
-          'text-muted-foreground/80 transition hover:text-foreground'
-        )}
+        className="absolute right-1 top-1/2 -translate-y-1/2"
         aria-pressed={isVisible}
         aria-label={isVisible ? copy.hide : copy.show}
       >
@@ -46,7 +46,7 @@ export function PasswordInput({
         ) : (
           <Eye className="h-4 w-4" />
         )}
-      </button>
+      </Button>
     </div>
   );
 }

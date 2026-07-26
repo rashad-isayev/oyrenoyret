@@ -13,6 +13,8 @@
  *
  *   - Explicit hash arg:
  *     node scripts/create-admin.mjs --email office@oyrenoyret.org --password-hash '$2b$12$...'
+ *
+ * Remote databases additionally require the explicit --allow-remote flag.
  */
 
 import './load-env.mjs';
@@ -20,6 +22,14 @@ import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
+import { assertExplicitRemoteDatabaseAccess } from './database-target-safety.mjs';
+
+const allowRemote = process.argv.includes('--allow-remote');
+assertExplicitRemoteDatabaseAccess({
+  databaseUrl: process.env.DATABASE_URL,
+  allowRemote,
+  operation: 'create or update an admin user',
+});
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -49,6 +59,7 @@ async function main() {
   const emailArg = getArgValue('--email');
   const passwordHashArg = getArgValue('--password-hash');
   const plaintextPassword = process.env.ADMIN_PLAINTEXT_PASSWORD || null;
+  delete process.env.ADMIN_PLAINTEXT_PASSWORD;
   const emailRaw = emailArg || process.env.ADMIN_EMAIL || null;
   const force = hasFlag('--force');
 
@@ -59,6 +70,9 @@ async function main() {
   const email = String(emailRaw ?? '').trim().toLowerCase();
   if (!email) {
     throw new Error('Missing email. Pass --email or set ADMIN_EMAIL.');
+  }
+  if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) {
+    throw new Error('Admin email is invalid.');
   }
 
   const envHash = process.env.ADMIN_PASSWORD_HASH?.trim() || null;
@@ -87,38 +101,69 @@ async function main() {
     if (!passwordHash.startsWith('$2') || passwordHash.length < 40) {
       throw new Error('Provided password hash does not look like a bcrypt hash.');
     }
+    let rounds = 0;
+    try {
+      rounds = bcrypt.getRounds(passwordHash);
+    } catch {
+      throw new Error('Provided password hash is not a valid bcrypt hash.');
+    }
+    if (rounds < 12) {
+      throw new Error('Provided bcrypt hash must use a cost factor of at least 12.');
+    }
   } else {
+    const plaintextBytes = Buffer.byteLength(String(plaintextPassword), 'utf8');
+    if (
+      plaintextBytes < 12 ||
+      plaintextBytes > 72 ||
+      !/[a-z]/.test(String(plaintextPassword)) ||
+      !/[A-Z]/.test(String(plaintextPassword)) ||
+      !/[0-9]/.test(String(plaintextPassword)) ||
+      !/[^A-Za-z0-9]/.test(String(plaintextPassword))
+    ) {
+      throw new Error(
+        'Admin password must be 12-72 bytes and include upper, lower, number, and symbol characters.',
+      );
+    }
     passwordHash = await bcrypt.hash(String(plaintextPassword), 12);
   }
 
-  const user = await prisma.user.upsert({
-    where: { email },
-    create: {
-      email,
-      passwordHash,
-      role: 'ADMIN',
-      status: 'ACTIVE',
-      registrationStep: 5,
-      emailVerifiedAt: new Date(),
-    },
-    update: {
-      passwordHash,
-      role: 'ADMIN',
-      status: 'ACTIVE',
-      registrationStep: 5,
-      emailVerifiedAt: new Date(),
-      deletedAt: null,
-    },
-    select: { id: true, email: true, role: true, status: true },
+  const result = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.upsert({
+      where: { email },
+      create: {
+        email,
+        passwordHash,
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        registrationStep: 5,
+        emailVerifiedAt: new Date(),
+      },
+      update: {
+        passwordHash,
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        registrationStep: 5,
+        emailVerifiedAt: new Date(),
+        deletedAt: null,
+      },
+      select: { id: true, email: true, role: true, status: true },
+    });
+    const revoked = await tx.authSession.deleteMany({
+      where: { userId: user.id },
+    });
+    return { user, sessionsRevoked: revoked.count };
   });
 
-  // eslint-disable-next-line no-console
-  console.log(`Admin user ensured: ${user.email} (${user.id}) role=${user.role} status=${user.status}`);
+  const [localPart, domain = ''] = result.user.email.split('@');
+  const maskedEmail = `${localPart?.slice(0, 1) || '*'}***@${domain}`;
+  console.log(
+    `Admin user ensured: ${maskedEmail} role=${result.user.role} status=${result.user.status}; revoked ${result.sessionsRevoked} existing session(s).`,
+  );
 }
 
 main()
   .catch((error) => {
-    // eslint-disable-next-line no-console
+
     console.error('Admin create/update failed:', error?.message ?? error);
     process.exitCode = 1;
   })

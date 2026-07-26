@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { PiCheck as Check } from 'react-icons/pi';
+import { PiCheckBold as Check } from 'react-icons/pi';
 import { cn } from '@/src/lib/utils';
 
 export interface CheckboxProps
@@ -24,17 +24,17 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
         />
         <span
           className={cn(
-            'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-border',
+            'flex h-4 w-4 shrink-0 items-center justify-center rounded border border-input',
             'bg-background transition-colors duration-150',
-            'peer-focus-visible:ring-2 peer-focus-visible:ring-primary/20 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background',
+            'peer-focus-visible:ring-1 peer-focus-visible:ring-ring/75 peer-focus-visible:ring-offset-0',
             'peer-disabled:cursor-not-allowed peer-disabled:opacity-50',
-            'peer-checked:bg-foreground peer-checked:border-foreground/60 peer-checked:text-background',
+            'peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground',
             className
           )}
         >
           <Check
             className={cn(
-              'h-2.5 w-2.5 stroke-[3] transition-opacity',
+              'h-3 w-3 transition-opacity',
               checked ? 'opacity-100' : 'opacity-0'
             )}
           />

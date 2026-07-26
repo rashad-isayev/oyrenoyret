@@ -14,6 +14,7 @@ import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '
 import { AVATAR_VARIANTS } from '@/src/lib/avatar';
 import { getPublicErrorMessage } from '@/src/security/public-error';
 import { requireVerifiedEmailForWrite } from '@/src/modules/auth/utils/write-access';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 const schema = z.object({
   firstName: z
@@ -53,8 +54,14 @@ export async function POST(request: Request) {
       return NextResponse.json(body, { status, headers });
     }
 
-    const raw = (await request.json().catch(() => ({}))) as unknown;
-    const parsed = schema.safeParse(raw);
+    const bodyResult = await readJsonBody(request, JSON_BODY_LIMITS.SMALL);
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { success: false, error: bodyResult.error },
+        { status: bodyResult.status, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const parsed = schema.safeParse(bodyResult.value);
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: 'Invalid profile payload' },

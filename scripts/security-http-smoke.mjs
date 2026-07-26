@@ -48,6 +48,34 @@ if (missingCronSecret.status !== 403) {
   failures.push(`unauthenticated origin-less cron call returned ${missingCronSecret.status}, expected 403`);
 }
 
+const privateDiscussionList = await request('/api/discussions');
+if (privateDiscussionList.status !== 401) {
+  failures.push(
+    `unauthenticated discussion list returned ${privateDiscussionList.status}, expected 401`,
+  );
+}
+
+const privateDiscussionDetail = await request('/api/discussions/not-a-real-id');
+if (privateDiscussionDetail.status !== 401) {
+  failures.push(
+    `unauthenticated discussion detail returned ${privateDiscussionDetail.status}, expected 401`,
+  );
+}
+
+const oversizedJson = await request('/api/settings/preferences', {
+  method: 'POST',
+  headers: {
+    origin: baseUrl.origin,
+    'content-type': 'application/json',
+  },
+  body: JSON.stringify({ language: 'x'.repeat(40_000) }),
+});
+if (oversizedJson.status !== 413) {
+  failures.push(
+    `oversized JSON body returned ${oversizedJson.status}, expected 413`,
+  );
+}
+
 if (failures.length) {
   console.error('HTTP security smoke test failed:');
   for (const failure of failures) console.error(`- ${failure}`);

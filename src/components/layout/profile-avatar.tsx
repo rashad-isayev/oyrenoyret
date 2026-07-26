@@ -18,6 +18,11 @@ interface ProfileAvatarProps {
   className?: string;
   size?: 'sm' | 'md';
   showHoverCard?: boolean;
+  href?: string;
+  title?: string;
+  ariaLabel?: string;
+  disabled?: boolean;
+  static?: boolean;
 }
 
 export function ProfileAvatar({
@@ -28,24 +33,28 @@ export function ProfileAvatar({
   className,
   size = 'sm',
   showHoverCard = true,
+  href,
+  title = 'View profile',
+  ariaLabel,
+  disabled = false,
+  static: isStatic = false,
 }: ProfileAvatarProps) {
   const sizeClass = size === 'sm' ? 'h-8 w-8 text-xs' : 'h-9 w-9 text-sm';
   const resolvedVariant = isAvatarVariant(avatarVariant)
     ? avatarVariant
     : getStableAvatarVariant(userId);
   const src = getAvatarSrc(resolvedVariant);
+  const resolvedHref = href ?? `/u/${userId}`;
 
-  const avatar = (
-    <Link
-      href={`/u/${userId}`}
-      className={cn(
-        'relative flex items-center justify-center overflow-hidden rounded-full font-medium text-white ring-1 ring-black/5',
-        sizeClass,
-        'transition-opacity hover:opacity-90',
-        className
-      )}
-      title="View profile"
-    >
+  const rootClassName = cn(
+    'relative flex items-center justify-center overflow-hidden rounded-full font-medium text-white ring-1 ring-black/5',
+    sizeClass,
+    !disabled && !isStatic && 'transition-opacity hover:opacity-90',
+    disabled && 'cursor-not-allowed opacity-60',
+    className,
+  );
+  const avatarImage = (
+    <>
       <Image
         src={src}
         alt="Avatar"
@@ -53,6 +62,24 @@ export function ProfileAvatar({
         sizes={size === 'sm' ? '32px' : '36px'}
         className="object-cover"
       />
+    </>
+  );
+  const avatar = disabled ? (
+    <span className={rootClassName} aria-disabled="true" title={title}>
+      {avatarImage}
+    </span>
+  ) : isStatic ? (
+    <span className={rootClassName} aria-hidden="true">
+      {avatarImage}
+    </span>
+  ) : (
+    <Link
+      href={resolvedHref}
+      aria-label={ariaLabel}
+      className={rootClassName}
+      title={title}
+    >
+      {avatarImage}
     </Link>
   );
 
@@ -60,7 +87,12 @@ export function ProfileAvatar({
 
   const fallbackName = [firstName, lastName].filter(Boolean).join(' ').trim() || 'User';
   return (
-    <UserHoverCard lookupId={userId} fallbackName={fallbackName} avatarVariant={avatarVariant} href={`/u/${userId}`}>
+    <UserHoverCard
+      lookupId={userId}
+      fallbackName={fallbackName}
+      avatarVariant={avatarVariant}
+      href={resolvedHref}
+    >
       {avatar}
     </UserHoverCard>
   );

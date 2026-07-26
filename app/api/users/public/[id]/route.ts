@@ -12,6 +12,7 @@ import { getPrivateNoStoreHeaders } from '@/src/lib/http-cache';
 import { RATE_LIMITS } from '@/src/config/constants';
 import { getCurrentSession } from '@/src/modules/auth/utils/session';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
+import { requirePlatformContentAccess } from '@/src/modules/auth/utils/write-access';
 
 const idSchema = z.string().min(1).max(64);
 
@@ -22,6 +23,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json(
         { success: false, errorKey: 'unauthorized' },
         { status: 401, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const contentAccess = await requirePlatformContentAccess(sessionUserId);
+    if (!contentAccess.ok) {
+      return NextResponse.json(
+        { success: false, errorKey: contentAccess.errorKey },
+        { status: contentAccess.status, headers: getPrivateNoStoreHeaders() },
       );
     }
 
@@ -78,4 +86,3 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     );
   }
 }
-

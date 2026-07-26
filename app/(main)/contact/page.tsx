@@ -1,6 +1,7 @@
 import { getI18n } from '@/src/i18n/server';
 import { ContactMessageForm } from '@/src/modules/contact/components/contact-message-form';
 import { BrandText } from '@/src/components/ui/brand-text';
+import { PublicPageShell } from '@/src/components/ui/public-page-shell';
 
 export const metadata = {
   title: 'Contact',
@@ -10,7 +11,7 @@ export default async function ContactPage() {
   const { messages } = await getI18n();
   const copy = messages.main.contact;
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 pb-20 pt-20 sm:px-6 lg:px-8">
+    <PublicPageShell>
       <div className="space-y-4">
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           <BrandText>{copy.title}</BrandText>
@@ -43,6 +44,6 @@ export default async function ContactPage() {
         </div>
         <ContactMessageForm />
       </div>
-    </main>
+    </PublicPageShell>
   );
 }

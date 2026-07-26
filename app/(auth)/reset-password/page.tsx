@@ -117,7 +117,7 @@ export default function ResetPasswordPage() {
                   {copy.passwordLabel}
                 </FormLabel>
                 <FormControl>
-                  <PasswordInput className="h-10 rounded-lg bg-background/70" maxLength={72} required {...field} />
+                  <PasswordInput maxLength={72} required {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -133,7 +133,7 @@ export default function ResetPasswordPage() {
                   {copy.confirmPasswordLabel}
                 </FormLabel>
                 <FormControl>
-                  <PasswordInput className="h-10 rounded-lg bg-background/70" maxLength={72} required {...field} />
+                  <PasswordInput maxLength={72} required {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -144,7 +144,7 @@ export default function ResetPasswordPage() {
             type="submit"
             variant="primary"
             size="lg"
-            className="h-10 w-full text-sm"
+            className="w-full"
             disabled={isSubmitting || !form.formState.isValid}
           >
             {isSubmitting ? copy.submitting : copy.submit}

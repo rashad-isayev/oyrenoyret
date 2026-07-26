@@ -105,7 +105,7 @@ export function UserHoverCard({
         if (nextOpen) void maybeFetch();
       }}
     >
-      <HoverCardTrigger asChild>
+      <HoverCardTrigger>
         <span className={cn('inline-flex', className)}>{children}</span>
       </HoverCardTrigger>
       <HoverCardContent sideOffset={8} className="w-72">
@@ -129,7 +129,7 @@ export function UserHoverCard({
                 </p>
               </div>
               {resolvedHref ? (
-                <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
+                <Button asChild variant="outline" size="sm">
                   <Link href={resolvedHref}>View</Link>
                 </Button>
               ) : null}

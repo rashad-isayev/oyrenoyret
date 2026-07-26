@@ -1,23 +1,25 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { PiList as Menu, PiTrendUp as TrendingUp, PiMegaphone as Megaphone } from 'react-icons/pi';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { PiList as Menu } from 'react-icons/pi';
 import { AppSidebar } from '@/src/components/layout/app-sidebar';
 import { AccountTitle } from '@/src/components/layout/account-title';
-import { DiscussionsRightSidebar } from '@/src/components/layout/discussions-right-sidebar';
-import { LiveActivitiesRightSidebar } from '@/src/components/layout/live-activities-right-sidebar';
-import { TrendingDiscussions } from '@/src/modules/discussions/trending-discussions';
-import { LiveAnnouncementsList } from '@/src/modules/events/live-announcements-list';
 import { Logo } from '@/src/components/ui/logo';
-import { WelcomeTour } from '@/src/modules/onboarding/welcome-tour';
+import { ProfileAvatar } from '@/src/components/layout/profile-avatar';
 import { OnlinePresence } from '@/src/components/presence/online-presence';
 import { cn } from '@/src/lib/utils';
 import { useI18n } from '@/src/i18n/i18n-provider';
-import { EmailVerificationBanner } from '@/src/modules/auth/components/email-verification-banner';
+import { AccountSetupBanner } from '@/src/modules/onboarding/account-setup-banner';
+import { getAccountSetupState } from '@/src/modules/onboarding/account-setup-state';
+import { PlatformInteractionBoundary } from '@/src/modules/onboarding/platform-interaction-boundary';
+import { DashboardShell } from '@/src/components/ui/dashboard-shell';
 import { CurrentUserProvider } from '@/src/modules/auth/components/current-user-context';
 import { AccountRestrictionDialog } from '@/src/components/moderation/account-restriction-dialog';
+import { Button } from '@/components/ui/button';
+import { useModalSurface } from '@/src/lib/use-modal-surface';
 
 interface AppShellProps {
   children: ReactNode;
@@ -28,44 +30,50 @@ interface AppShellProps {
     lastName: string | null;
     avatarVariant?: string | null;
     email: string;
-    credits?: number;
     role?: string;
     emailVerifiedAt?: string | null;
+    guidelinesAcceptedAt?: string | null;
+    guidelinesVersion?: string | null;
+    accountOwnerType?: string | null;
+    tutorialCompletedAt?: string | null;
+    tutorialSkippedAt?: string | null;
     status?: string | null;
     suspensionUntil?: string | null;
     suspensionReason?: string | null;
     bannedAt?: string | null;
     banReason?: string | null;
   };
-  showTutorial?: boolean;
 }
 
 export function AppShell({
   children,
   displayName,
   user,
-  showTutorial = false,
 }: AppShellProps) {
   const pathname = usePathname();
   const { t } = useI18n();
+  const reduceMotion = useReducedMotion();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [tutorialOpen, setTutorialOpen] = useState(() => {
-    if (!showTutorial) return false;
-    try {
-      return localStorage.getItem('oyrenoyret:welcomeTourSeen') !== '1';
-    } catch {
-      return true;
-    }
-  });
-  const tutorialCompleteRef = useRef(false);
+  const mobileNavRef = useRef<HTMLDivElement | null>(null);
   const isDiscussionsRoute = pathname === '/discussions' || pathname.startsWith('/discussions/');
-  const isEventsRoute = pathname === '/events' || pathname.startsWith('/events/');
-  const showRight = isDiscussionsRoute || isEventsRoute;
-  const removeMainPaddingY = isDiscussionsRoute && pathname !== '/discussions';
-  const gridColumns = showRight
-    ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)_minmax(0,1fr)]'
-    : 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,4fr)]';
-
+  const usesImmersiveMain = pathname.startsWith('/discussions/');
+  const accountSetupState = getAccountSetupState(user);
+  const requiresAccountActivation =
+    accountSetupState === 'verify-email' ||
+    accountSetupState === 'accept-guidelines';
+  const removeMainPaddingY =
+    isDiscussionsRoute &&
+    pathname !== '/discussions';
+  const isStaff = user.role === 'ADMIN' || user.role === 'TEACHER';
+  const requiresProductTour =
+    !requiresAccountActivation &&
+    user.status === 'ACTIVE' &&
+    !isStaff &&
+    accountSetupState === 'product-tour';
+  const systemNoticeState =
+    requiresAccountActivation || requiresProductTour
+      ? accountSetupState
+      : null;
   const prevPathnameRef = useRef(pathname);
   useEffect(() => {
     const previous = prevPathnameRef.current;
@@ -78,25 +86,15 @@ export function AppShell({
     return;
   }, [pathname, mobileNavOpen]);
 
-  const handleTutorialComplete = useCallback(async () => {
-    if (tutorialCompleteRef.current) return;
-    tutorialCompleteRef.current = true;
-    setTutorialOpen(false);
-    try {
-      localStorage.setItem('oyrenoyret:welcomeTourSeen', '1');
-    } catch {
-      // ignore
-    }
-    try {
-      await fetch('/api/onboarding/complete', { method: 'POST', credentials: 'include' });
-    } catch {
-      // Ignore network errors; we still treat the tour as seen locally.
-    }
-  }, []);
+  useModalSurface({
+    open: mobileNavOpen,
+    onClose: () => setMobileNavOpen(false),
+    containerRef: mobileNavRef,
+  });
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-background">
-      <OnlinePresence />
+    <div className="app-canvas h-[100dvh] overflow-hidden">
+      {isDiscussionsRoute ? <OnlinePresence /> : null}
       <AccountTitle displayName={displayName} />
       <CurrentUserProvider
         user={{
@@ -106,6 +104,8 @@ export function AppShell({
           avatarVariant: user.avatarVariant,
           role: user.role,
           emailVerifiedAt: user.emailVerifiedAt,
+          guidelinesAcceptedAt: user.guidelinesAcceptedAt,
+          guidelinesVersion: user.guidelinesVersion,
           status: user.status ?? null,
           suspensionUntil: user.suspensionUntil ?? null,
           bannedAt: user.bannedAt ?? null,
@@ -117,102 +117,118 @@ export function AppShell({
           suspensionReason={user.suspensionReason ?? null}
           banReason={user.banReason ?? null}
         />
-        <div className="mx-auto flex h-full w-full max-w-[1200px] min-h-0 flex-col">
-        <div className="flex items-center justify-between border-b border-border bg-background px-4 py-3 lg:hidden">
-            <button
+        <div className="flex h-full min-h-0 w-full flex-col">
+          <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-border/70 bg-background/88 px-4 backdrop-blur-xl lg:hidden">
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setMobileNavOpen(true)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted/70"
               aria-label={t('header.toggleMenu')}
+              className="bg-secondary shadow-card"
             >
-              <Menu className="h-4 w-4" />
-            </button>
-          <Logo size="sm" showText />
-          <span className="h-9 w-9" aria-hidden />
-        </div>
+              <Menu className="h-[18px] w-[18px]" />
+            </Button>
+            <Logo size="sm" showText />
+            <ProfileAvatar
+              userId={user.id}
+              firstName={user.firstName}
+              lastName={user.lastName}
+              avatarVariant={user.avatarVariant}
+              size="sm"
+              href="/settings/my-account"
+              ariaLabel={t('settings.nav.myAccount')}
+              title={t('settings.nav.myAccount')}
+              showHoverCard={false}
+              className="h-10 w-10"
+            />
+          </div>
 
-          <div className={`grid w-full flex-1 min-h-0 ${gridColumns}`}>
+          <div className="grid min-h-0 w-full flex-1 grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)]">
             <AppSidebar user={user} className="hidden lg:flex" />
             <main
-              className={`min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-4 ${removeMainPaddingY ? 'py-0' : 'py-6'} sm:px-6 lg:px-8 lg:py-8`}
+              className={cn(
+                'min-h-0 min-w-0 overflow-x-hidden bg-background px-4 sm:px-6 lg:px-7 xl:px-8',
+                usesImmersiveMain
+                  ? 'flex flex-col overflow-y-hidden py-0'
+                  : 'overflow-y-auto py-5 lg:py-6',
+              )}
             >
-              {!user.emailVerifiedAt ? (
-                <div className="mb-4">
-                  <EmailVerificationBanner />
-                </div>
-              ) : null}
-
-              {children}
-              {showRight ? (
-                <section className="mt-6 mb-6 lg:mb-0 lg:hidden">
-                  {isDiscussionsRoute ? (
-                    <div className="card-frame bg-card overflow-hidden">
-                      <div className="flex h-12 items-center gap-2 px-4 text-sm font-medium text-foreground">
-                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                        {t('discussions.trendingTitle')}
-                      </div>
-                      <div className="h-px w-full bg-border/70" />
-                      <div className="p-4">
-                        <TrendingDiscussions variant="plain" showTitle={false} showScore={false} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 px-1 text-sm font-medium text-foreground">
-                        <Megaphone className="h-4 w-4 text-muted-foreground" />
-                        {t('sidebar.announcements')}
-                      </div>
-                      <LiveAnnouncementsList limit={6} />
-                    </div>
+              <div
+                className={cn(
+                  'mx-auto w-full max-w-[960px]',
+                  usesImmersiveMain &&
+                    'flex min-h-0 flex-1 flex-col',
+                )}
+              >
+                {systemNoticeState ? (
+                  <DashboardShell
+                    width="standard"
+                    className={cn(
+                      'min-h-0 gap-0',
+                      removeMainPaddingY ? 'pb-5 pt-5' : 'mb-5',
+                    )}
+                  >
+                    <AccountSetupBanner
+                      state={systemNoticeState}
+                      userId={user.id}
+                      guardianManaged={user.accountOwnerType === 'GUARDIAN'}
+                      previouslyAcceptedGuidelines={Boolean(
+                        user.guidelinesAcceptedAt,
+                      )}
+                    />
+                  </DashboardShell>
+                ) : null}
+                <PlatformInteractionBoundary
+                  locked={requiresAccountActivation}
+                  className={cn(
+                    usesImmersiveMain &&
+                      'flex min-h-0 flex-1 flex-col',
                   )}
-                </section>
-              ) : null}
+                >
+                  {children}
+                </PlatformInteractionBoundary>
+              </div>
             </main>
-            {isDiscussionsRoute ? (
-              <DiscussionsRightSidebar className="hidden lg:flex" />
-            ) : isEventsRoute ? (
-              <LiveActivitiesRightSidebar className="hidden lg:flex" />
-            ) : null}
           </div>
         </div>
       </CurrentUserProvider>
 
-      {showTutorial ? (
-        <WelcomeTour open={tutorialOpen} onComplete={handleTutorialComplete} />
-      ) : null}
-
-      <div
-        className={cn(
-          'fixed inset-0 z-50 lg:hidden transition-opacity duration-300 ease-in-out',
-          mobileNavOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
-        )}
-        role="dialog"
-        aria-modal={mobileNavOpen}
-        aria-hidden={!mobileNavOpen}
-      >
-        <button
-          type="button"
-          className={cn(
-            'absolute inset-0 bg-black/40 transition-opacity duration-300 ease-in-out',
-            mobileNavOpen ? 'opacity-100' : 'opacity-0',
-          )}
-          onClick={() => setMobileNavOpen(false)}
-          aria-label={t('header.closeNavigation')}
-          tabIndex={mobileNavOpen ? 0 : -1}
-        />
-        <div
-          className={cn(
-            'absolute inset-y-0 left-0 w-72 border-r border-border bg-background shadow-xl transition-transform duration-350 ease-in-out will-change-transform',
-            mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
-          )}
-        >
-          <AppSidebar
-            user={user}
-            className="h-full border-r-0"
-            onClose={() => setMobileNavOpen(false)}
-          />
-        </div>
-      </div>
+      <AnimatePresence>
+        {mobileNavOpen ? (
+          <motion.div
+            className="fixed inset-0 z-50 lg:hidden"
+            role="dialog"
+            aria-modal="true"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.18 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45"
+              onClick={() => setMobileNavOpen(false)}
+              aria-label={t('header.closeNavigation')}
+            />
+            <motion.div
+              ref={mobileNavRef}
+              tabIndex={-1}
+              className="app-rail absolute inset-y-0 left-0 w-[min(296px,88vw)] border-r border-border/70 shadow-float"
+              initial={{ x: reduceMotion ? 0 : '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: reduceMotion ? 0 : '-100%' }}
+              transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.2, 0, 0, 1] }}
+            >
+              <AppSidebar
+                user={user}
+                className="h-full border-r-0"
+                onClose={() => setMobileNavOpen(false)}
+              />
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

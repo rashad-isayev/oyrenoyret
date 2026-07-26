@@ -8,7 +8,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/src/db/client';
 import { getCurrentSession } from '@/src/modules/auth/utils/session';
-import { requireVerifiedEmailForWrite } from '@/src/modules/auth/utils/write-access';
+import {
+  requirePlatformContentAccess,
+  requireVerifiedEmailForWrite,
+} from '@/src/modules/auth/utils/write-access';
 import { isAdmin } from '@/src/lib/permissions';
 import { sanitizeInput } from '@/src/security/validation';
 import { RATE_LIMITS } from '@/src/config/constants';
@@ -19,9 +22,10 @@ import {
 } from '@/src/security/rateLimiter';
 import { isDbSchemaMismatch } from '@/src/db/schema-mismatch';
 import { sanitizeInternalPath } from '@/src/security/request-origin';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 const ALLOWED_REASONS = new Set(['SPAM', 'HARASSMENT', 'CHEATING', 'IMPERSONATION', 'OTHER']);
-const ALLOWED_TARGETS = new Set(['PROFILE', 'DISCUSSION', 'DISCUSSION_REPLY', 'MATERIAL', 'MATERIAL_COMMENT']);
+const ALLOWED_TARGETS = new Set(['PROFILE', 'DISCUSSION', 'DISCUSSION_REPLY']);
 
 export async function POST(request: Request) {
   try {
@@ -44,7 +48,21 @@ export async function POST(request: Request) {
       return NextResponse.json(body, { status, headers });
     }
 
-    const body = await request.json().catch(() => ({}));
+    const bodyResult = await readJsonBody<{
+      reportedUserId?: unknown;
+      targetType?: unknown;
+      targetId?: unknown;
+      reason?: unknown;
+      details?: unknown;
+      contextUrl?: unknown;
+    }>(request, JSON_BODY_LIMITS.SMALL);
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { error: bodyResult.error },
+        { status: bodyResult.status },
+      );
+    }
+    const body = bodyResult.value;
     const reported = typeof body?.reportedUserId === 'string' ? body.reportedUserId.trim() : '';
     const targetTypeRaw = typeof body?.targetType === 'string' ? body.targetType.trim().toUpperCase() : '';
     const targetId = typeof body?.targetId === 'string' ? sanitizeInput(body.targetId).slice(0, 64) : '';
@@ -72,10 +90,6 @@ export async function POST(request: Request) {
       targetOwnerId = (await prisma.discussion.findUnique({ where: { id: targetId }, select: { userId: true } }))?.userId ?? null;
     } else if (targetType === 'DISCUSSION_REPLY') {
       targetOwnerId = (await prisma.discussionReply.findUnique({ where: { id: targetId }, select: { userId: true } }))?.userId ?? null;
-    } else if (targetType === 'MATERIAL') {
-      targetOwnerId = (await prisma.material.findUnique({ where: { id: targetId }, select: { userId: true } }))?.userId ?? null;
-    } else if (targetType === 'MATERIAL_COMMENT') {
-      targetOwnerId = (await prisma.materialComment.findUnique({ where: { id: targetId }, select: { userId: true } }))?.userId ?? null;
     }
 
     const reportedUser = targetType === 'PROFILE'
@@ -125,11 +139,24 @@ export async function GET(request: Request) {
     const userId = await getCurrentSession();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const contentAccess = await requirePlatformContentAccess(userId);
+    if (!contentAccess.ok) {
+      return NextResponse.json(
+        {
+          error: 'error' in contentAccess ? contentAccess.error : 'Unauthorized',
+          errorKey: contentAccess.errorKey,
+        },
+        { status: contentAccess.status },
+      );
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true },
+      select: { role: true, status: true },
     });
-    if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!user || !isAdmin(user.role) || user.status !== 'ACTIVE') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     const identifier = getRateLimitIdentifier(request, userId);
     const rateLimit = await checkRateLimit(`user-reports:list:${identifier}`, RATE_LIMITS.ADMIN_WRITE);

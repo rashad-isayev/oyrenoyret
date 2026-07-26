@@ -10,6 +10,7 @@ import { ProfileAvatar } from '@/src/components/layout/profile-avatar';
 import { useI18n } from '@/src/i18n/i18n-provider';
 import { cn } from '@/src/lib/utils';
 import { useAnchoredOverlayStyle } from '@/src/lib/anchored-overlay';
+import { useModalSurface } from '@/src/lib/use-modal-surface';
 
 interface CurrentUser {
   id: string;
@@ -72,8 +73,8 @@ function HoverDropdown({ label, items }: HoverDropdownProps) {
         ref={triggerRef}
         type="button"
         className={cn(
-          'flex touch-manipulation items-center gap-1 rounded-md px-2 py-1.5 text-xs text-foreground transition-colors',
-          open ? 'bg-muted/70' : 'hover:bg-muted/70',
+          'flex h-9 touch-manipulation items-center gap-1 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground',
+          open ? 'bg-accent text-foreground' : 'hover:bg-accent',
         )}
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
@@ -86,23 +87,23 @@ function HoverDropdown({ label, items }: HoverDropdownProps) {
         ref={menuRef}
         style={menuStyle}
         className={cn(
-          'pointer-events-none invisible fixed z-[100] w-56 origin-top scale-[0.98] opacity-0 transition-all duration-150 ease-out',
+          'pointer-events-none invisible fixed z-[100] w-64 origin-top scale-[0.98] opacity-0 transition-all duration-150 ease-out',
           open && 'visible pointer-events-auto scale-100 opacity-100',
         )}
       >
         <div className="pt-3" aria-hidden />
-        <div className="card-frame bg-background px-2 py-2">
-          <div className="flex flex-col gap-1">
+        <div className="rounded-xl border border-border/60 bg-popover p-1.5 shadow-float">
+          <div className="flex flex-col gap-0.5">
             {items.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex flex-col gap-0.5 rounded-md px-3 py-2 text-xs text-foreground transition-colors hover:bg-muted/70"
+                className="flex flex-col gap-1 rounded-xl px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-secondary"
                 onClick={() => setOpen(false)}
               >
                 <div className="font-medium">{item.label}</div>
                 {item.description && (
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-xs leading-relaxed text-muted-foreground">
                     {item.description}
                   </div>
                 )}
@@ -125,6 +126,13 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
   const [hasScrolled, setHasScrolled] = useState(false);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLElement | null>(null);
+
+  useModalSurface({
+    open: menuOpen,
+    onClose: () => setMenuOpen(false),
+    containerRef: mobileMenuRef,
+  });
 
   useEffect(() => {
     const handleScroll = () => {
@@ -151,52 +159,56 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
       }
     };
 
-    if (mediaQuery.matches) {
-      setMenuOpen(false);
-    }
-
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
   return (
     <>
-      {showSpacer ? <div className="h-14" aria-hidden="true" /> : null}
+      {showSpacer ? <div className="h-16" aria-hidden="true" /> : null}
       <header
         className={cn(
-          'fixed top-0 z-40 w-full border-b transition-[background-color,border-color,backdrop-filter,box-shadow] duration-300 will-change-[backdrop-filter,background-color] md:backdrop-blur-0 relative',
-          showSeparator ? 'border-transparent' : 'border-border',
-          showSeparator
-            ? hasScrolled
-              ? 'md:bg-background/70 md:backdrop-blur'
-              : 'md:bg-transparent md:backdrop-blur-0'
-            : hasScrolled
-              ? 'md:border-border/40 md:bg-background/70 md:backdrop-blur'
-              : 'md:border-transparent md:bg-transparent md:backdrop-blur-0',
+          'fixed inset-x-0 top-0 z-40 w-full border-b bg-background/90 backdrop-blur-xl transition-colors duration-150',
+          showSeparator || hasScrolled
+            ? 'border-border'
+            : 'border-transparent',
         )}
       >
-        <div className="flex w-full items-center justify-between bg-background px-4 py-3 md:hidden">
-          <button
+        <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 md:hidden">
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={() => setMenuOpen(true)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted/70"
             aria-expanded={menuOpen}
             aria-controls="landing-sidebar"
+            aria-label={t('header.toggleMenu')}
           >
             <Menu className="h-4 w-4" />
-            <span className="sr-only">{t('header.toggleMenu')}</span>
-          </button>
+          </Button>
           <Logo size="sm" showText textSize="lg" />
-          <span className="h-9 w-9" aria-hidden />
+          {user ? (
+            <ProfileAvatar
+              userId={user.id}
+              firstName={user.firstName}
+              lastName={user.lastName}
+              avatarVariant={user.avatarVariant}
+              size="sm"
+            />
+          ) : (
+            <Button asChild size="sm" variant="primary">
+              <Link href="/login">{t('header.logIn')}</Link>
+            </Button>
+          )}
         </div>
-        <div className="hidden w-full grid-cols-[1fr_auto_1fr] items-center gap-6 px-4 py-2 sm:px-6 md:grid">
+        <div className="mx-auto hidden h-16 w-full max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-6 px-6 md:grid lg:px-8">
           {/* 1. Logo Section */}
           <div className="flex min-w-0 items-center justify-self-start">
             <Logo size="sm" showText textSize="lg" priority />
           </div>
 
           {/* 2. Directives Section - Core Navigation (centered) */}
-          <nav className="hidden items-center justify-center gap-3 md:flex">
+          <nav className="hidden items-center justify-center gap-1 md:flex">
             <HoverDropdown
               label={t('header.resources')}
               items={[
@@ -249,7 +261,7 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
             />
             <Link
               href="/contact"
-              className="rounded-md px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/70"
+              className="flex h-9 items-center rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
               {t('header.contact')}
             </Link>
@@ -268,19 +280,16 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
                 />
               ) : (
                 <>
-                  <Link
-                    href="/login"
-                    className="rounded-md px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/70"
-                  >
-                    {t('header.logIn')}
-                  </Link>
                   <Button asChild size="sm" variant="primary">
+                    <Link href="/login">{t('header.logIn')}</Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
                     <Link
-                      href="/register"
+                      href="/welcome"
                       className="group/btn inline-flex items-center gap-1"
                     >
                       {t('header.getStarted')}
-                      <ArrowRight className="h-4 w-4 transition-transform group-hover/btn:translate-x-0.5" />
+                      <ArrowRight className="h-4 w-4" data-directional-arrow="forward" />
                     </Link>
                   </Button>
                 </>
@@ -290,110 +299,104 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
         </div>
         {showSeparator ? (
           <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-border/60 to-transparent"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border"
             aria-hidden="true"
           />
         ) : null}
       </header>
+      {menuOpen ? (
       <div
-        className={cn(
-          'fixed inset-0 z-50 md:hidden transition-opacity duration-300 ease-in-out',
-          menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
-        )}
+        className="fixed inset-0 z-50 md:hidden"
         role="dialog"
-        aria-modal={menuOpen}
-        aria-hidden={!menuOpen}
+        aria-modal="true"
       >
         <button
           type="button"
-          className={cn(
-            'absolute inset-0 bg-black/40 transition-opacity duration-300 ease-in-out',
-            menuOpen ? 'opacity-100' : 'opacity-0',
-          )}
+          className="absolute inset-0 bg-black/45"
           onClick={() => setMenuOpen(false)}
           aria-label={t('header.closeNavigation')}
-          tabIndex={menuOpen ? 0 : -1}
         />
         <aside
+          ref={mobileMenuRef}
           id="landing-sidebar"
-          className={cn(
-            'absolute inset-y-0 left-0 w-72 border-r border-border bg-background shadow-xl transition-transform duration-350 ease-in-out will-change-transform',
-            menuOpen ? 'translate-x-0' : '-translate-x-full',
-          )}
+          tabIndex={-1}
+          className="app-rail absolute inset-y-0 left-0 flex w-[min(296px,88vw)] flex-col border-r border-border/70 shadow-float"
         >
-          <div className="flex h-14 items-center justify-between border-b border-border px-4">
+          <div className="flex h-16 shrink-0 items-center justify-between px-4">
             <Logo size="sm" showText />
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-modal-initial-focus
               onClick={() => setMenuOpen(false)}
               aria-label={t('header.closeNavigation')}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:text-foreground"
             >
               <X className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
-          <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-4">
+          <nav className="app-drawer-nav flex-1 space-y-7 overflow-y-auto px-4 py-5">
             <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-medium uppercase text-muted-foreground">
+              <span className="eyebrow px-3">
                 {t('header.resources')}
               </span>
               <Link
                 href="/resources/docs"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.documentation')}
               </Link>
               <Link
                 href="/resources/help"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.helpCenter')}
               </Link>
               <Link
                 href="/resources/changelog"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.changelog')}
               </Link>
               <Link
                 href="/resources/blog"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.blog')}
               </Link>
             </div>
             <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-medium uppercase text-muted-foreground">
+              <span className="eyebrow px-3">
                 {t('header.legals')}
               </span>
               <Link
                 href="/legals/privacy-policy"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.privacy')}
               </Link>
               <Link
                 href="/legals/terms-of-service"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.terms')}
               </Link>
               <Link
                 href="/legals/cookie-policy"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.cookies')}
               </Link>
               <Link
                 href="/legals/gdpr"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => setMenuOpen(false)}
               >
                 {t('header.gdpr')}
@@ -401,13 +404,13 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
             </div>
             <Link
               href="/contact"
-              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+              className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
               onClick={() => setMenuOpen(false)}
             >
               {t('header.contact')}
             </Link>
           </nav>
-          <div className="border-t border-border px-4 py-4">
+          <div className="border-t border-border/70 px-4 py-4">
             {user ? (
               <div className="flex items-center gap-3">
                 <ProfileAvatar
@@ -425,19 +428,19 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
               <div className="flex flex-col gap-3">
                 <Link
                   href="/login"
-                  className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                  className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                   onClick={() => setMenuOpen(false)}
                 >
                   {t('header.logIn')}
                 </Link>
                 <Button asChild size="sm" variant="primary">
                   <Link
-                    href="/register"
+                    href="/welcome"
                     className="group/btn inline-flex items-center gap-1"
                     onClick={() => setMenuOpen(false)}
                   >
                     {t('header.getStarted')}
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover/btn:translate-x-0.5" />
+                    <ArrowRight className="h-4 w-4" data-directional-arrow="forward" />
                   </Link>
                 </Button>
               </div>
@@ -445,6 +448,7 @@ export function SiteHeader({ showSpacer = true, showSeparator = false }: SiteHea
           </div>
         </aside>
       </div>
+      ) : null}
     </>
   );
 }

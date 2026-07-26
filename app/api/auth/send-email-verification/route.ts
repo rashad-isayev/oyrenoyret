@@ -18,10 +18,22 @@ import {
 import { sendAccountVerificationEmail } from '@/src/modules/auth/services/email';
 import { getPublicErrorMessage } from '@/src/security/public-error';
 import { getTrustedAppOrigin } from '@/src/security/request-origin';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => ({}))) as { token?: unknown };
+    const bodyResult = await readJsonBody<{ token?: unknown }>(
+      request,
+      JSON_BODY_LIMITS.SMALL,
+      { allowEmpty: true },
+    );
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { success: false, error: bodyResult.error },
+        { status: bodyResult.status, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const body = bodyResult.value;
     const providedToken = typeof body.token === 'string' ? body.token.trim() : '';
     const sessionUserId = await getCurrentSession();
 

@@ -16,6 +16,7 @@ import {
   getRateLimitIdentifier,
 } from '@/src/security/rateLimiter';
 import { isDbSchemaMismatch } from '@/src/db/schema-mismatch';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 const ALLOWED = new Set(['PENDING', 'RESOLVED', 'DISMISSED']);
 
@@ -50,7 +51,17 @@ export async function PATCH(
       return NextResponse.json(body, { status, headers });
     }
 
-    const body = await request.json().catch(() => ({}));
+    const bodyResult = await readJsonBody<{ status?: unknown }>(
+      request,
+      JSON_BODY_LIMITS.SMALL,
+    );
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { error: bodyResult.error },
+        { status: bodyResult.status },
+      );
+    }
+    const body = bodyResult.value;
     const status = typeof body?.status === 'string' ? body.status.trim().toUpperCase() : '';
     if (!ALLOWED.has(status)) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 });

@@ -12,9 +12,9 @@
  */
 
 import { z } from 'zod';
-import { PRACTICE_TEST_LIMITS } from '@/src/config/practice-test';
 import { maybeDecodeEscapedHtml } from '@/src/lib/html';
 import { getR2ObjectPrefix } from '@/src/security/object-key';
+import { sanitizeRichHtmlOnServer } from '@/src/security/server-rich-html-sanitizer';
 
 /**
  * Validates email format
@@ -59,24 +59,6 @@ export function sanitizeInput(input: string): string {
   const trimmed = input.trim();
   // Strip real HTML tags only (avoid eating plain text like "Use <, >, =").
   return trimmed.replace(/<\/?[a-z][^>]*>/gi, '').trim();
-}
-
-/**
- * Sanitizes HTML content to prevent XSS while preserving safe formatting.
- * Use for rich text (e.g. material content, discussion content from TipTap).
- * Links are stripped by default for safety (anchor tags are forbidden).
- *
- * @param input Raw HTML string
- * @returns Sanitized HTML string
- */
-export function sanitizeHtml(input: string): string {
-  const trimmed = input.trim();
-  const withBreaks = trimmed
-    .replace(/<\s*br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6)>/gi, '\n');
-  const stripped = withBreaks.replace(/<\/?[a-z][^>]*>/gi, '');
-  const normalized = stripped.replace(/\n{3,}/g, '\n\n').trim();
-  return normalized.replace(/\n/g, '<br>');
 }
 
 function escapeHtml(raw: string) {
@@ -131,15 +113,29 @@ function sanitizeWithDomParser(options: {
   allowedTags: string[];
   allowedAttrs: string[];
   allowImgSrc?: (src: string) => boolean;
+  preserveFormattingOnServer?: boolean;
 }) {
-  const { input, allowedTags, allowedAttrs, allowImgSrc } = options;
+  const {
+    input,
+    allowedTags,
+    allowedAttrs,
+    allowImgSrc,
+    preserveFormattingOnServer = false,
+  } = options;
   const dirty = maybeDecodeEscapedHtml(String(input ?? '').trim());
   if (!dirty) return '';
 
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
-    // Avoid pulling in heavy DOM sanitizers in server runtimes (can be brittle across Node versions).
-    // Server-side sanitation is kept intentionally conservative; client-side rendering applies the full
-    // allowlist sanitizer via DOMParser.
+    if (preserveFormattingOnServer) {
+      return sanitizeRichHtmlOnServer({
+        input: dirty,
+        allowedTags,
+        allowedAttrs,
+        allowImgSrc,
+        filterInlineStyle,
+      });
+    }
+
     return sanitizeToPlainHtmlWithBreaks(dirty);
   }
 
@@ -203,40 +199,6 @@ function sanitizeWithDomParser(options: {
 
   walk(root);
   return root.innerHTML;
-}
-
-/**
- * Sanitizes rich HTML content (TipTap) while preserving safe formatting.
- * Intended for materials and practice tests.
- */
-export function sanitizeRichTextHtml(input: string): string {
-  return sanitizeWithDomParser({
-    input,
-    allowedTags: [
-      'p',
-      'br',
-      'div',
-      'span',
-      'strong',
-      'em',
-      'u',
-      's',
-      'code',
-      'pre',
-      'blockquote',
-      'hr',
-      'ul',
-      'ol',
-      'li',
-      'h1',
-      'h2',
-      'h3',
-      'sup',
-      'sub',
-      'mark',
-    ],
-    allowedAttrs: ['style', 'start'],
-  });
 }
 
 /**
@@ -311,43 +273,6 @@ export function sanitizeDiscussionRichTextHtml(input: string): string {
       'decoding',
     ],
     allowImgSrc: isAllowedDiscussionImageSrc,
+    preserveFormattingOnServer: true,
   });
-}
-
-export function sanitizePracticeTestContent(content: string): string {
-  const parsed = JSON.parse(String(content ?? ''));
-  const rawQuestions = Array.isArray((parsed as any)?.questions) ? (parsed as any).questions : [];
-  if (rawQuestions.length > PRACTICE_TEST_LIMITS.QUESTIONS_MAX) {
-    throw new Error('Too many practice test questions');
-  }
-
-  const questions = rawQuestions.slice(0, PRACTICE_TEST_LIMITS.QUESTIONS_MAX).map((q: any, idx: number) => {
-    const id = typeof q?.id === 'string' ? q.id : `q-${idx}`;
-    const type = q?.type === 'short_answer' ? 'short_answer' : 'multiple_choice';
-    const question = sanitizeRichTextHtml(String(q?.question ?? ''));
-    const rawOptions = Array.isArray(q?.options) ? q.options : [];
-    const options: { id: string; text: string }[] = rawOptions
-      .slice(0, PRACTICE_TEST_LIMITS.OPTIONS_MAX)
-      .map((opt: any, optIdx: number) => ({
-      id: typeof opt?.id === 'string' ? opt.id : `${id}-opt-${optIdx}`,
-      text: sanitizeRichTextHtml(String(opt?.text ?? '')),
-    }));
-
-    // Keep server-side content compatible with the editor constraints:
-    // multiple choice questions must have 3-5 options (variants).
-    if (type === 'multiple_choice') {
-      while (options.length < PRACTICE_TEST_LIMITS.OPTIONS_MIN) {
-        options.push({ id: `${id}-opt-${options.length}`, text: '' });
-      }
-    }
-
-    let correctOptionId = typeof q?.correctOptionId === 'string' ? q.correctOptionId : undefined;
-    if (type === 'multiple_choice' && (!correctOptionId || !options.some((o) => o.id === correctOptionId))) {
-      correctOptionId = options[0]?.id;
-    }
-
-    return { id, type, question, options, correctOptionId };
-  });
-
-  return JSON.stringify({ questions });
 }

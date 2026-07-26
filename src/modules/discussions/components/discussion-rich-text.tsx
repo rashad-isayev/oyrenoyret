@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PiCaretLeft as CaretLeft, PiCaretRight as CaretRight, PiX as X } from 'react-icons/pi';
 import { cn } from '@/src/lib/utils';
+import { useModalSurface } from '@/src/lib/use-modal-surface';
 import { sanitizeDiscussionRichTextHtml } from '@/src/security/validation';
 import { getDiscussionImageSrc } from '@/src/lib/discussion-images';
+import { MediaImage } from '@/src/components/ui/media-image';
 
 type DiscussionImage = { src: string; alt: string };
 
@@ -75,10 +77,16 @@ function PreviewOverlay({
   onPrev: () => void;
   onNext: () => void;
 }) {
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  useModalSurface({
+    open,
+    onClose,
+    containerRef: overlayRef,
+  });
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowLeft') onPrev();
       if (e.key === 'ArrowRight') onNext();
     };
@@ -92,6 +100,8 @@ function PreviewOverlay({
 
   return (
     <div
+      ref={overlayRef}
+      tabIndex={-1}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
@@ -132,13 +142,15 @@ function PreviewOverlay({
           </>
         ) : null}
 
-        <div className="overflow-hidden rounded-xl bg-black">
-          <img
+        <div className="overflow-hidden rounded-lg bg-black">
+          <MediaImage
             src={img.src}
             alt={img.alt}
+            width={1600}
+            height={1200}
+            sizes="90vw"
             className="h-[80vh] w-full object-contain"
             loading="eager"
-            decoding="async"
           />
         </div>
 
@@ -155,12 +167,8 @@ function PreviewOverlay({
 function DiscussionImageCarousel({ images }: { images: DiscussionImage[] }) {
   const [index, setIndex] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
-
-  useEffect(() => {
-    setIndex((current) => mod(current, images.length));
-  }, [images.length]);
-
-  const current = images[index];
+  const safeIndex = images.length > 0 ? mod(index, images.length) : 0;
+  const current = images[safeIndex];
   if (!current) return null;
 
   const prev = () => setIndex((i) => mod(i - 1, images.length));
@@ -179,12 +187,14 @@ function DiscussionImageCarousel({ images }: { images: DiscussionImage[] }) {
             setPreviewOpen(true);
           }}
         >
-          <img
+          <MediaImage
             src={current.src}
             alt={current.alt}
+            width={1600}
+            height={900}
+            sizes="(min-width: 768px) 720px, 100vw"
             className="h-full w-full object-contain"
             loading="lazy"
-            decoding="async"
           />
         </button>
 
@@ -215,7 +225,7 @@ function DiscussionImageCarousel({ images }: { images: DiscussionImage[] }) {
               <CaretRight className="h-5 w-5" />
             </button>
             <div className="absolute bottom-2 right-2 rounded-full bg-background/80 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
-              {index + 1}/{images.length}
+              {safeIndex + 1}/{images.length}
             </div>
           </>
         ) : null}
@@ -224,7 +234,7 @@ function DiscussionImageCarousel({ images }: { images: DiscussionImage[] }) {
       <PreviewOverlay
         open={previewOpen}
         images={images}
-        index={index}
+        index={safeIndex}
         onClose={() => setPreviewOpen(false)}
         onPrev={prev}
         onNext={next}

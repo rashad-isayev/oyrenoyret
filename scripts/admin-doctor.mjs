@@ -80,7 +80,7 @@ async function main() {
       },
     });
 
-    // eslint-disable-next-line no-console
+
     console.log('Admin doctor:', {
       email: maskEmail(email),
       databaseUrlPresent: hasDatabaseUrl,
@@ -95,7 +95,7 @@ async function main() {
       passwordMatches = await bcrypt.compare(String(plaintext), user.passwordHash);
     }
 
-    // eslint-disable-next-line no-console
+
     console.log('User:', {
       id: user.id,
       role: user.role,
@@ -114,7 +114,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  // eslint-disable-next-line no-console
+
   console.error('Admin doctor failed:', error?.message ?? error);
   process.exitCode = 1;
 });

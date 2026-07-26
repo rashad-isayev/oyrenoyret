@@ -25,6 +25,11 @@ enum UserStatus {
   BANNED
 }
 
+enum AccountOwnerType {
+  SELF
+  GUARDIAN
+}
+
 enum UserReportStatus {
   PENDING
   RESOLVED
@@ -43,8 +48,6 @@ enum ReportTargetType {
   PROFILE
   DISCUSSION
   DISCUSSION_REPLY
-  MATERIAL
-  MATERIAL_COMMENT
 }
 
 enum ConsentStatus {
@@ -58,8 +61,6 @@ enum ModerationTargetType {
   USER
   DISCUSSION
   DISCUSSION_REPLY
-  MATERIAL
-  MATERIAL_COMMENT
 }
 
 enum ModerationActionType {
@@ -69,57 +70,6 @@ enum ModerationActionType {
   BAN
   UNBAN
   REMOVE_CONTENT
-}
-
-enum ModerationNoticeType {
-  ACCOUNT_SUSPENDED
-  ACCOUNT_UNSUSPENDED
-  ACCOUNT_BANNED
-  ACCOUNT_UNBANNED
-  CONTENT_REMOVED
-  FACILITATOR_APPLICATION_CHANGES_REQUESTED
-  FACILITATOR_APPLICATION_REJECTED
-  FACILITATOR_APPLICATION_APPROVED
-  GUIDED_GROUP_SESSION_CANCELLED
-  GUIDED_GROUP_SESSION_AUTO_CANCELLED
-  GUIDED_GROUP_SESSION_NO_SHOW
-  GUIDED_GROUP_SESSION_STARTING
-  GUIDED_GROUP_SESSION_ENROLLMENT_APPROVED
-  GUIDED_GROUP_SESSION_ENROLLMENT_REJECTED
-}
-
-enum SessionStatus {
-  ACTIVE
-  COMPLETED
-  ABANDONED
-}
-
-enum FacilitatorApplicationStatus {
-  PENDING
-  CHANGES_REQUESTED
-  APPROVED
-  REJECTED
-}
-
-enum GuidedGroupSessionStatus {
-  SCHEDULED
-  LIVE
-  COMPLETED
-  CANCELLED
-  AUTO_CANCELLED
-  NO_SHOW
-}
-
-enum GuidedGroupSessionEnrollmentStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-}
-
-enum GuidedGroupSessionLearnerSentiment {
-  GOOD
-  BAD
 }
 
 model ContactMessage {
@@ -134,8 +84,8 @@ model ContactMessage {
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@index([userId])
@@ -145,312 +95,97 @@ model ContactMessage {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  publicId  String?  @unique
-  email     String   @unique
-  passwordHash String? // Nullable for OAuth users
-  role      UserRole @default(STUDENT)
-  status    UserStatus @default(INACTIVE) // Start as INACTIVE until registration completes
-  emailVerifiedAt DateTime? // User email verification timestamp (required for write actions)
-  suspensionUntil DateTime?
-  suspensionReason String? @db.Text
-  bannedAt DateTime?
-  banReason String? @db.Text
-  dateOfBirth DateTime? // Required for minors, nullable for parents/admins
-  firstName String?
-  lastName  String?
+  id               String     @id @default(uuid())
+  publicId         String?    @unique
+  email            String     @unique
+  passwordHash     String? // Nullable for OAuth users
+  role             UserRole   @default(STUDENT)
+  status           UserStatus @default(INACTIVE) // Moderation/lifecycle state; onboarding readiness is tracked separately
+  emailVerifiedAt  DateTime? // User email verification timestamp (required for write actions)
+  suspensionUntil  DateTime?
+  suspensionReason String?    @db.Text
+  bannedAt         DateTime?
+  banReason        String?    @db.Text
+  dateOfBirth      DateTime? // Required for minors, nullable for parents/admins
+  firstName        String?
+  lastName         String?
   // Avatar color/theme variant. Maps to public `/avatar-<variant>.png`.
-  avatarVariant String @default("regular")
-  grade     String? // Student grade: 5, 6, 7, 8, 9, 10, 11
-  
+  avatarVariant    String     @default("regular")
+  grade            String? // Student grade: 5, 6, 7, 8, 9, 10, 11
+
   // Registration flow tracking
-  registrationStep Int @default(1) // Track current registration step (1-5)
-  parentEmail      String? // Parent/guardian email (stored but not trusted until verified)
-  parentFirstName  String?
-  parentLastName   String?
-  tutorialCompletedAt DateTime? // When the onboarding tutorial is completed
-  notificationsReadAt DateTime @default(now()) // Used to compute unread notifications badge
-  
-  // Credits (gamified economy)
-  credits          Float             @default(15)
-  creditTransactions CreditTransaction[]
-  materialAccesses MaterialAccess[]
-  
+  registrationStep        Int               @default(1) // Compatibility/analytics only; milestone timestamps are authoritative
+  learningMotivation      String?
+  weeklyLearningGoal      String?
+  declaredAge             Int?
+  accountOwnerType        AccountOwnerType?
+  onboardingStartedAt     DateTime?
+  registrationCompletedAt DateTime?
+  guidelinesAcceptedAt    DateTime?
+  guidelinesVersion       String?
+  parentEmail             String? // Parent/guardian email (stored but not trusted until verified)
+  parentFirstName         String?
+  parentLastName          String?
+  tutorialCompletedAt     DateTime? // When the onboarding tutorial is completed
+  tutorialSkippedAt       DateTime? // When the optional product tour is explicitly skipped
+  tutorialStep            Int               @default(0) // Last completed product-tour step
+
   // Relations
-  parentalConsents ParentalConsent[]
-  guardianVerifications GuardianVerification[]
-  emailVerificationTokens EmailVerificationToken[]
-  passwordResetTokens PasswordResetToken[]
-  authSessions     AuthSession[]
-  sessions         Session[]
-  academicRecords  AcademicRecord[]
-  certificates     Certificate[]
-  activities       Activity[]
-  userDailyVisits  UserDailyVisit[]
-  dailyWheelSpins  DailyWheelSpin[]
-  liveEventsCreated LiveEvent[] @relation("LiveEventsCreated")
-  liveEventEnrollments LiveEventEnrollment[]
-  liveEventSubmissions LiveEventSubmission[]
-  liveAnnouncementsCreated LiveAnnouncement[] @relation("LiveAnnouncementsCreated")
-  activityStats    UserActivityStats?
-  materials        Material[]
-  materialsRemoved Material[] @relation("MaterialRemovedBy")
-  discussions      Discussion[]
-  discussionsRemoved Discussion[] @relation("DiscussionRemovedBy")
-  discussionReplies DiscussionReply[]
-  discussionRepliesRemoved DiscussionReply[] @relation("DiscussionReplyRemovedBy")
-  discussionVotes  DiscussionVote[]
-  replyVotes       ReplyVote[]
-  materialComments MaterialComment[]
-  materialCommentsRemoved MaterialComment[] @relation("MaterialCommentRemovedBy")
-  materialCommentVotes MaterialCommentVote[]
-  contactMessages ContactMessage[]
-  facilitatorApplications FacilitatorApplication[]
-  facilitatorApplicationsReviewed FacilitatorApplication[] @relation("FacilitatorApplicationsReviewedBy")
-  facilitatorSubjectVerifications FacilitatorSubjectVerification[] @relation("FacilitatorVerifiedSubjects")
-  facilitatorSubjectsVerifiedBy FacilitatorSubjectVerification[] @relation("FacilitatorSubjectVerifiedBy")
-  facilitatorSubjectsRevokedBy FacilitatorSubjectVerification[] @relation("FacilitatorSubjectRevokedBy")
-  guidedGroupSessionsFacilitated GuidedGroupSession[] @relation("GuidedGroupSessionsFacilitated")
-  guidedGroupSessionsCancelled GuidedGroupSession[] @relation("GuidedGroupSessionsCancelledBy")
-  guidedGroupSessionEnrollments GuidedGroupSessionEnrollment[] @relation("GuidedGroupSessionEnrollments")
-  guidedGroupSessionEnrollmentDecisions GuidedGroupSessionEnrollment[] @relation("GuidedGroupSessionEnrollmentDecidedBy")
-  guidedGroupSessionFacilitatorRatingsGiven GuidedGroupSessionFacilitatorFeedback[] @relation("GuidedGroupSessionFacilitatorRatingsByLearner")
-  guidedGroupSessionFacilitatorRatingsReceived GuidedGroupSessionFacilitatorFeedback[] @relation("GuidedGroupSessionFacilitatorRatingsForFacilitator")
-  guidedGroupSessionLearnerFeedbackGiven GuidedGroupSessionLearnerFeedback[] @relation("GuidedGroupSessionLearnerFeedbackByFacilitator")
-  guidedGroupSessionLearnerFeedbackReceived GuidedGroupSessionLearnerFeedback[] @relation("GuidedGroupSessionLearnerFeedbackForLearner")
-  reportsMade    UserReport[] @relation("UserReportsReporter")
-  reportsReceived UserReport[] @relation("UserReportsReported")
-  reportsResolved UserReport[] @relation("UserReportsResolvedBy")
-  moderationActions ModerationAction[] @relation("ModerationActor")
-  moderationActionsTargeted ModerationAction[] @relation("ModerationTargetUser")
-  moderationNotices ModerationNotice[]
-  
+  parentalConsents            ParentalConsent[]
+  registrationVerifications   RegistrationVerification[]
+  emailVerificationTokens     EmailVerificationToken[]
+  passwordResetTokens         PasswordResetToken[]
+  authSessions                AuthSession[]
+  discussions                 Discussion[]
+  discussionsRemoved          Discussion[]                 @relation("DiscussionRemovedBy")
+  discussionReplies           DiscussionReply[]
+  discussionRepliesRemoved    DiscussionReply[]            @relation("DiscussionReplyRemovedBy")
+  discussionParticipantStates DiscussionParticipantState[]
+  contactMessages             ContactMessage[]
+  reportsMade                 UserReport[]                 @relation("UserReportsReporter")
+  reportsReceived             UserReport[]                 @relation("UserReportsReported")
+  reportsResolved             UserReport[]                 @relation("UserReportsResolvedBy")
+  moderationActions           ModerationAction[]           @relation("ModerationActor")
+  moderationActionsTargeted   ModerationAction[]           @relation("ModerationTargetUser")
+
   // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime? // Soft delete support
-  
+
   @@index([email])
   @@index([role])
   @@index([status])
   @@index([deletedAt])
   @@index([parentEmail])
   @@index([emailVerifiedAt])
+  @@index([registrationStep])
+  @@index([tutorialCompletedAt])
+  @@index([tutorialSkippedAt])
   @@index([suspensionUntil])
   @@index([bannedAt])
 }
 
-model FacilitatorApplication {
-  id               String                       @id @default(uuid())
-  userId           String
-  phoneNumber      String
-  finCode          String
-  motivationLetter String                       @db.Text
-  status           FacilitatorApplicationStatus @default(PENDING)
-  reviewerMessage  String?                      @db.Text
-  reviewedById     String?
-  reviewedAt       DateTime?
-
-  user             User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reviewedBy       User?                        @relation("FacilitatorApplicationsReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
-  subjects         FacilitatorApplicationSubject[]
-  verifications    FacilitatorSubjectVerification[]
-
-  createdAt        DateTime                     @default(now())
-  updatedAt        DateTime                     @updatedAt
-  deletedAt        DateTime?
-
-  @@index([userId, createdAt])
-  @@index([status])
-  @@index([reviewedById])
-  @@index([deletedAt])
-}
-
-model FacilitatorApplicationSubject {
-  id            String                 @id @default(uuid())
-  applicationId String
-  subjectId     String
-  approvedAt    DateTime?
-
-  application   FacilitatorApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  @@unique([applicationId, subjectId])
-  @@index([applicationId])
-  @@index([subjectId])
-  @@index([approvedAt])
-}
-
-model FacilitatorSubjectVerification {
-  id            String                  @id @default(uuid())
-  userId        String
-  subjectId     String
-  applicationId String?
-  verifiedById  String?
-  verifiedAt    DateTime                @default(now())
-  revokedAt     DateTime?
-  revokedById   String?
-  revokedReason String?                 @db.Text
-
-  user          User                    @relation("FacilitatorVerifiedSubjects", fields: [userId], references: [id], onDelete: Cascade)
-  application   FacilitatorApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
-  verifiedBy    User?                   @relation("FacilitatorSubjectVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
-  revokedBy     User?                   @relation("FacilitatorSubjectRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
-
-  @@unique([userId, subjectId])
-  @@index([subjectId])
-  @@index([verifiedAt])
-  @@index([revokedAt])
-  @@index([applicationId])
-}
-
-model GuidedGroupSession {
-  id                    String                   @id @default(uuid())
-  facilitatorId         String
-  subjectId             String
-  topicId               String
-  title                 String
-  objectives            String?                  @db.Text
-  scheduledAt           DateTime
-  durationMinutes       Int
-  learnerCapacity       Int
-  status                GuidedGroupSessionStatus @default(SCHEDULED)
-  startedAt             DateTime?
-  endedAt               DateTime?
-  cancelledAt           DateTime?
-  cancelledById         String?
-  cancelReason          String?                  @db.Text
-  ratingAvg             Float                    @default(0)
-  ratingCount           Int                      @default(0)
-  whiteboardData        Json?
-  activeMaterialId      String?
-  startingNotifiedAt    DateTime?
-  settledAt             DateTime?
-  facilitatorPayoutTxId String?
-
-  facilitator           User                     @relation("GuidedGroupSessionsFacilitated", fields: [facilitatorId], references: [id], onDelete: Cascade)
-  cancelledBy           User?                    @relation("GuidedGroupSessionsCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
-  activeMaterial        Material?                @relation("GuidedGroupSessionActiveMaterial", fields: [activeMaterialId], references: [id], onDelete: SetNull)
-  enrollments           GuidedGroupSessionEnrollment[]
-  facilitatorFeedback   GuidedGroupSessionFacilitatorFeedback[]
-  learnerFeedback       GuidedGroupSessionLearnerFeedback[]
-
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  deletedAt             DateTime?
-
-  @@index([scheduledAt])
-  @@index([facilitatorId, scheduledAt])
-  @@index([subjectId, topicId, scheduledAt])
-  @@index([status])
-  @@index([startingNotifiedAt])
-  @@index([deletedAt])
-}
-
-model GuidedGroupSessionEnrollment {
-  id                  String                         @id @default(uuid())
-  sessionId           String
-  userId              String
-  status              GuidedGroupSessionEnrollmentStatus @default(PENDING)
-  decidedAt           DateTime?
-  decidedById         String?
-  cancelledAt         DateTime?
-  chargedAt           DateTime?
-  chargeTransactionId String?
-  joinedAt            DateTime?
-  leftAt              DateTime?
-
-  session             GuidedGroupSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user                User                          @relation("GuidedGroupSessionEnrollments", fields: [userId], references: [id], onDelete: Cascade)
-  decidedBy           User?                         @relation("GuidedGroupSessionEnrollmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
-
-  createdAt           DateTime                       @default(now())
-  updatedAt           DateTime                       @updatedAt
-
-  @@unique([sessionId, userId])
-  @@index([userId])
-  @@index([sessionId])
-  @@index([status])
-}
-
-model GuidedGroupSessionFacilitatorFeedback {
-  id            String             @id @default(uuid())
-  sessionId     String
-  learnerId     String
-  facilitatorId String
-  rating        Int
-  comment       String?            @db.Text
-
-  session       GuidedGroupSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  learner       User               @relation("GuidedGroupSessionFacilitatorRatingsByLearner", fields: [learnerId], references: [id], onDelete: Cascade)
-  facilitator   User               @relation("GuidedGroupSessionFacilitatorRatingsForFacilitator", fields: [facilitatorId], references: [id], onDelete: Cascade)
-
-  createdAt     DateTime           @default(now())
-
-  @@unique([sessionId, learnerId])
-  @@index([facilitatorId, createdAt])
-  @@index([learnerId, createdAt])
-}
-
-model GuidedGroupSessionLearnerFeedback {
-  id            String                          @id @default(uuid())
-  sessionId     String
-  facilitatorId String
-  learnerId     String
-  sentiment     GuidedGroupSessionLearnerSentiment
-  note          String?                         @db.Text
-
-  session       GuidedGroupSession              @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  facilitator   User                           @relation("GuidedGroupSessionLearnerFeedbackByFacilitator", fields: [facilitatorId], references: [id], onDelete: Cascade)
-  learner       User                           @relation("GuidedGroupSessionLearnerFeedbackForLearner", fields: [learnerId], references: [id], onDelete: Cascade)
-
-  createdAt     DateTime                        @default(now())
-
-  @@unique([sessionId, learnerId])
-  @@index([facilitatorId, createdAt])
-  @@index([learnerId, createdAt])
-}
-
 model ModerationAction {
-  id           String               @id @default(uuid())
-  actorId      String?
-  targetUserId String?
-  targetType   ModerationTargetType @default(USER)
-  targetId     String?
-  actionType   ModerationActionType
-  reason       String               @db.Text
+  id              String               @id @default(uuid())
+  actorId         String?
+  targetUserId    String?
+  targetType      ModerationTargetType @default(USER)
+  targetId        String?
+  actionType      ModerationActionType
+  reason          String               @db.Text
   durationSeconds Int?
-  metadata     Json?
+  metadata        Json?
 
-  actor        User? @relation("ModerationActor", fields: [actorId], references: [id], onDelete: SetNull)
-  targetUser   User? @relation("ModerationTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
-  notices      ModerationNotice[]
+  actor      User? @relation("ModerationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUser User? @relation("ModerationTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([actorId])
   @@index([targetUserId])
   @@index([targetType, targetId])
   @@index([createdAt])
-}
-
-model ModerationNotice {
-  id        String               @id @default(uuid())
-  userId    String
-  type      ModerationNoticeType
-  title     String
-  body      String               @db.Text
-  linkUrl   String?
-  actionId  String?
-  readAt    DateTime?
-
-  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    ModerationAction?    @relation(fields: [actionId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-
-  @@index([userId, createdAt])
-  @@index([readAt])
-  @@index([actionId])
 }
 
 model UserReport {
@@ -466,12 +201,12 @@ model UserReport {
   resolvedAt     DateTime?
   resolvedById   String?
 
-  reporter       User @relation("UserReportsReporter", fields: [reporterId], references: [id], onDelete: Cascade)
-  reportedUser   User @relation("UserReportsReported", fields: [reportedUserId], references: [id], onDelete: Cascade)
-  resolvedBy     User? @relation("UserReportsResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  reporter     User  @relation("UserReportsReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUser User  @relation("UserReportsReported", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  resolvedBy   User? @relation("UserReportsResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@index([reporterId])
@@ -484,14 +219,14 @@ model UserReport {
 }
 
 model EmailVerificationToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
   email     String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -503,13 +238,13 @@ model EmailVerificationToken {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -519,102 +254,44 @@ model PasswordResetToken {
   @@index([usedAt])
 }
 
-model UserActivityStats {
-  id                           String   @id @default(uuid())
-  userId                       String   @unique
-  userPublicId                 String
-  materialsSharedTextual       Int      @default(0)
-  materialsSharedPractice      Int      @default(0)
-  liveProblemSprintTop3        Int      @default(0)
-  liveGuidedGroupFacilitated   Int      @default(0)
-  discussionHelps              Int      @default(0)
-  materialsPurchasedFromUser   Int      @default(0)
+model RegistrationVerification {
+  id         String    @id @default(uuid())
+  userId     String
+  email      String
+  codeHash   String
+  expiresAt  DateTime
+  verifiedAt DateTime?
+  attempts   Int       @default(0)
+  used       Boolean   @default(false)
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([userPublicId])
-}
-
-model UserDailyVisit {
-  id        String   @id @default(uuid())
-  userId    String
-  dayNumber Int
-  visitedAt DateTime @default(now())
-
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, dayNumber])
   @@index([userId])
-  @@index([dayNumber])
-  @@index([visitedAt])
-}
-
-model DailyWheelSpin {
-  id                  String             @id @default(uuid())
-  userId              String
-  dayNumber           Int
-  reward              Int
-  creditTransactionId String?            @unique
-
-  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  creditTransaction  CreditTransaction? @relation(fields: [creditTransactionId], references: [id], onDelete: SetNull)
-
-  spunAt    DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, dayNumber])
-  @@index([userId])
-  @@index([dayNumber])
-  @@index([spunAt])
-}
-
-model GuardianVerification {
-  id          String   @id @default(uuid())
-  userId      String
-  parentEmail String
-  codeHash    String   // HMAC-SHA-256 of the 6-digit verification code
-  expiresAt   DateTime // Code expiration time
-  verifiedAt  DateTime? // When code was successfully verified
-  attempts    Int      @default(0) // Number of verification attempts
-  used        Boolean  @default(false) // Whether code has been used
-  
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Timestamps
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([userId])
-  @@index([parentEmail])
-  @@index([codeHash])
+  @@index([email])
   @@index([expiresAt])
+  @@index([used])
 }
 
 model ParentalConsent {
-  id              String        @id @default(uuid())
-  userId          String
-  parentEmail     String
-  status          ConsentStatus @default(PENDING)
-  consentVersion  String        // Version of consent terms (e.g., "v1.0", "v2.1")
-  grantedAt       DateTime?
-  revokedAt       DateTime?
-  expiresAt       DateTime?    // Optional expiration date
-  
+  id             String        @id @default(uuid())
+  userId         String
+  parentEmail    String
+  status         ConsentStatus @default(PENDING)
+  consentVersion String // Version of consent terms (e.g., "v1.0", "v2.1")
+  grantedAt      DateTime?
+  revokedAt      DateTime?
+  expiresAt      DateTime? // Optional expiration date
+
   // Relations
-  user            User          @relation(fields: [userId], references: [id])
-  
+  user User @relation(fields: [userId], references: [id])
+
   // Timestamps
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([userId])
   @@index([parentEmail])
   @@index([status])
@@ -622,456 +299,49 @@ model ParentalConsent {
 }
 
 model AuthSession {
-  id          String   @id @default(uuid())
-  userId      String
-  tokenHash   String   @unique // SHA-256(session token); raw token is never stored
-  expiresAt   DateTime
-  ipAddress   String?
-  userAgent   String?
-  
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique // SHA-256(session token); raw token is never stored
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+
   // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Timestamps
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([userId])
   @@index([expiresAt])
 }
 
-model Session {
-  id          String        @id @default(uuid())
-  userId      String
-  status      SessionStatus @default(ACTIVE)
-  startedAt   DateTime      @default(now())
-  completedAt DateTime?
-  
-  // Relations
-  user        User          @relation(fields: [userId], references: [id])
-  
-  // Timestamps
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  deletedAt   DateTime?     // Soft delete support
-  
-  @@index([userId])
-  @@index([status])
-  @@index([startedAt])
-  @@index([deletedAt])
-}
-
-model AcademicRecord {
-  id          String   @id @default(uuid())
-  userId      String
-  grade       String?
-  subject     String?
-  score       Float?
-  notes       String?  @db.Text
-  
-  // Relations
-  user        User     @relation(fields: [userId], references: [id])
-  
-  // Timestamps
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime? // Soft delete support
-  
-  @@index([userId])
-  @@index([userId, deletedAt, createdAt])
-  @@index([deletedAt])
-}
-
-model Certificate {
-  id          String   @id @default(uuid())
-  userId      String
-  title       String
-  description String?  @db.Text
-  issuedAt    DateTime @default(now())
-
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Timestamps
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
-
-  @@index([userId])
-  @@index([issuedAt])
-  @@index([deletedAt])
-}
-
-model Activity {
-  id          String   @id @default(uuid())
-  userId      String
-  title       String
-  description String?  @db.Text
-  date        DateTime
-  duration    Int?
-  type        String
-
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Timestamps
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
-
-  @@index([userId])
-  @@index([userId, date])
-  @@index([date])
-  @@index([type])
-  @@index([deletedAt])
-}
-
-enum LiveEventType {
-  PROBLEM_SPRINT
-  EVENT
-}
-
-enum LiveEventEnrollmentStatus {
-  PENDING
-  CONFIRMED
-  CANCELLED
-}
-
-enum LiveEventProblemType {
-  MULTIPLE_CHOICE
-  SHORT_ANSWER
-}
-
-model LiveEvent {
-  id              String   @id @default(uuid())
-  topic           String
-  date            DateTime
-  durationMinutes Int
-  difficulty      MaterialDifficulty?
-  creditCost      Float
-  type            LiveEventType @default(PROBLEM_SPRINT)
-  maxParticipants Int?
-  prompt          String?  @db.Text
-
-  createdById     String?
-  createdBy       User?    @relation("LiveEventsCreated", fields: [createdById], references: [id], onDelete: SetNull)
-  enrollments     LiveEventEnrollment[]
-  problems        LiveEventProblem[]
-  submissions     LiveEventSubmission[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  @@index([date])
-  @@index([type])
-  @@index([deletedAt])
-}
-
-model LiveEventSubmission {
-  id          String   @id @default(uuid())
-  liveEventId String
-  userId      String
-  answer      String   @db.Text
-
-  liveEvent   LiveEvent @relation(fields: [liveEventId], references: [id], onDelete: Cascade)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  answers     LiveEventSubmissionAnswer[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  @@unique([liveEventId, userId])
-  @@index([liveEventId])
-  @@index([userId])
-  @@index([deletedAt])
-}
-
-model LiveEventProblem {
-  id          String               @id @default(uuid())
-  liveEventId String
-  order       Int
-  type        LiveEventProblemType
-  prompt      String               @db.Text
-
-  liveEvent   LiveEvent            @relation(fields: [liveEventId], references: [id], onDelete: Cascade)
-  options     LiveEventProblemOption[]
-  answers     LiveEventSubmissionAnswer[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([liveEventId, order])
-  @@index([liveEventId])
-  @@index([type])
-}
-
-model LiveEventProblemOption {
-  id        String          @id @default(uuid())
-  problemId String
-  order     Int
-  text      String          @db.Text
-  isCorrect Boolean         @default(false)
-
-  problem   LiveEventProblem @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  selectedBy LiveEventSubmissionAnswer[] @relation("LiveEventSubmissionAnswerSelectedOption")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([problemId, order])
-  @@index([problemId])
-}
-
-model LiveEventSubmissionAnswer {
-  id               String               @id @default(uuid())
-  submissionId     String
-  problemId        String
-  type             LiveEventProblemType
-  textAnswer       String?              @db.Text
-  selectedOptionId String?
-
-  submission       LiveEventSubmission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  problem          LiveEventProblem     @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  selectedOption   LiveEventProblemOption? @relation("LiveEventSubmissionAnswerSelectedOption", fields: [selectedOptionId], references: [id], onDelete: SetNull)
-  images           LiveEventSubmissionAnswerImage[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([submissionId, problemId])
-  @@index([submissionId])
-  @@index([problemId])
-  @@index([selectedOptionId])
-}
-
-model LiveEventSubmissionAnswerImage {
-  id       String                 @id @default(uuid())
-  answerId String
-  order    Int
-  key      String                 @db.Text
-
-  answer   LiveEventSubmissionAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([answerId, order])
-  @@index([answerId])
-  @@index([key])
-}
-
-model LiveEventEnrollment {
-  id          String   @id @default(uuid())
-  liveEventId String
-  userId      String
-  status      LiveEventEnrollmentStatus @default(PENDING)
-  verifiedAt  DateTime?
-
-  liveEvent   LiveEvent @relation(fields: [liveEventId], references: [id], onDelete: Cascade)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([liveEventId, userId])
-  @@index([userId])
-  @@index([userId, status])
-  @@index([liveEventId])
-  @@index([status])
-}
-
-model LiveAnnouncement {
-  id          String   @id @default(uuid())
-  title       String
-  body        String   @db.Text
-  imageUrl    String?  @db.Text
-  createdById String?
-  createdBy   User?    @relation("LiveAnnouncementsCreated", fields: [createdById], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  @@index([createdAt])
-  @@index([deletedAt])
-}
-
-model Subject {
-  id            String   @id @default(uuid())
-  slug          String   @unique
-  slugAz        String   @unique
-  nameEn        String
-  nameAz        String
-  descriptionEn String?  @db.Text
-  descriptionAz String?  @db.Text
-
-  topics        Topic[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  @@index([slug])
-  @@index([slugAz])
-  @@index([deletedAt])
-}
-
-model Topic {
-  id        String   @id @default(uuid())
-  subjectId String
-  slug      String
-  slugAz    String
-  nameEn    String
-  nameAz    String
-
-  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  @@unique([subjectId, slug])
-  @@unique([subjectId, slugAz])
-  @@index([subjectId])
-  @@index([slug])
-  @@index([slugAz])
-  @@index([deletedAt])
-}
-
-enum MaterialStatus {
-  DRAFT
-  PUBLISHED
-}
-
-enum MaterialType {
-  TEXTUAL
-  PRACTICE_TEST
-}
-
-enum MaterialDifficulty {
-  BASIC
-  INTERMEDIATE
-  ADVANCED
-}
-
-model Material {
-  id             String         @id @default(uuid())
-  userId         String
-  subjectId      String         // e.g. 'mathematics', 'physics'
-  topicId        String         // e.g. 'algebra', 'linear-equations'
-  title          String
-  objectives     String?        @db.Text  // Learning objectives (shown on material page)
-  content        String         @db.Text
-  materialType   MaterialType   @default(TEXTUAL)
-  questionCount  Int            @default(0)
-  status        MaterialStatus @default(DRAFT)
-  publishedAt   DateTime?
-  publishCreditsGrantedAt DateTime?  // Set when we grant 0.5 for first publish (idempotency)
-  alignmentScore Float?         // Alignment score [0.5, 1.0] used for credit formulas; default 0.75
-  difficulty    MaterialDifficulty? // basic=1 bar green, intermediate=2 bars yellow, advanced=3 bars red
-  ratingAvg     Float          @default(0)
-  ratingCount   Int            @default(0)
-  
-  // Relations
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accesses      MaterialAccess[]
-  comments      MaterialComment[]
-  guidedGroupSessionsAsActiveMaterial GuidedGroupSession[] @relation("GuidedGroupSessionActiveMaterial")
-  
-  // Timestamps
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  deletedAt   DateTime?      // Soft delete support
-  removedAt   DateTime?
-  removedById String?
-  removedReason String?      @db.Text
-  removedBy   User?          @relation("MaterialRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
-  
-  @@index([userId])
-  @@index([userId, materialType, status, deletedAt, removedAt])
-  @@index([subjectId, topicId])
-  @@index([status])
-  @@index([deletedAt])
-  @@index([subjectId, topicId, status, deletedAt, publishedAt])
-  @@index([removedAt])
-  @@index([removedById])
-}
-
-model MaterialComment {
-  id              String   @id @default(uuid())
-  materialId      String
-  parentCommentId String?
-  userId          String
-  content         String   @db.Text
-  rating          Int?
-  removedAt       DateTime?
-  removedById     String?
-  removedReason   String?  @db.Text
-
-  material        Material        @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  parentComment   MaterialComment? @relation("MaterialCommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
-  childComments   MaterialComment[] @relation("MaterialCommentReplies")
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  votes           MaterialCommentVote[]
-  removedBy       User?           @relation("MaterialCommentRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  deletedAt       DateTime?
-
-  @@index([materialId])
-  @@index([parentCommentId])
-  @@index([userId])
-  @@index([deletedAt])
-  @@index([removedAt])
-  @@index([removedById])
-}
-
-model MaterialCommentVote {
-  id        String @id @default(uuid())
-  commentId String
-  userId    String
-  value     Int
-
-  comment   MaterialComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([commentId, userId])
-  @@index([commentId])
-  @@index([userId])
-}
-
 model Discussion {
-  id               String    @id @default(uuid())
-  userId           String
-  title            String
-  content          String    @db.Text
-  subjectId        String?
-  topicId          String?
-  lastActivityAt   DateTime  @default(now()) // Updated on reply/vote; used for 24h archive
-  archivedAt       DateTime? // Set when no interaction for 24h
-  acceptedReplyId String?   @unique // Reply marked as helpful by asker → credits to helper
-  
+  id             String    @id @default(uuid())
+  userId         String
+  title          String
+  content        String    @db.Text
+  tags           String[]  @default([])
+  lastActivityAt DateTime  @default(now()) // Updated when the room changes; used by configurable lifecycle policy
+  archivedAt     DateTime? // Read-only after prolonged inactivity
+
   // Relations
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  acceptedReply    DiscussionReply?  @relation("AcceptedReply", fields: [acceptedReplyId], references: [id], onDelete: SetNull)
-  replies          DiscussionReply[]  @relation("DiscussionReplies")
-  votes            DiscussionVote[]
-  
+  user              User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies           DiscussionReply[]            @relation("DiscussionReplies")
+  participantStates DiscussionParticipantState[]
+
   // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  removedAt DateTime?
-  removedById String?
-  removedReason String? @db.Text
-  removedBy User? @relation("DiscussionRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
-  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  removedAt     DateTime?
+  removedById   String?
+  removedReason String?   @db.Text
+  removedBy     User?     @relation("DiscussionRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+
   @@index([userId])
   @@index([userId, removedAt])
-  @@index([subjectId, topicId])
+  @@index([tags], type: Gin)
   @@index([archivedAt])
   @@index([lastActivityAt])
   @@index([archivedAt, lastActivityAt])
@@ -1080,128 +350,49 @@ model Discussion {
 }
 
 model DiscussionReply {
-  id           String    @id @default(uuid())
-  discussionId String
-  parentReplyId String?   // null = top-level reply
-  userId       String
-  content      String    @db.Text
-  removedAt    DateTime?
-  removedById  String?
-  removedReason String? @db.Text
-  
+  id            String    @id @default(uuid())
+  discussionId  String
+  userId        String
+  content       String    @db.Text
+  removedAt     DateTime?
+  removedById   String?
+  removedReason String?   @db.Text
+
   // Relations
-  discussion   Discussion       @relation("DiscussionReplies", fields: [discussionId], references: [id], onDelete: Cascade)
-  discussionAsAccepted Discussion? @relation("AcceptedReply")
-  parentReply  DiscussionReply? @relation("ReplyReplies", fields: [parentReplyId], references: [id], onDelete: Cascade)
-  childReplies DiscussionReply[] @relation("ReplyReplies")
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  votes        ReplyVote[]
-  removedBy    User?             @relation("DiscussionReplyRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
-  
+  discussion       Discussion                   @relation("DiscussionReplies", fields: [discussionId], references: [id], onDelete: Cascade)
+  user             User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  removedBy        User?                        @relation("DiscussionReplyRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+  readCursorStates DiscussionParticipantState[] @relation("DiscussionReadCursor")
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([discussionId])
-  @@index([parentReplyId])
   @@index([userId])
   @@index([userId, removedAt, discussionId])
-  @@index([userId, removedAt, parentReplyId])
   @@index([removedAt])
   @@index([removedById])
 }
 
-model DiscussionVote {
-  id           String @id @default(uuid())
-  discussionId String
-  userId       String
-  value        Int    // 1 or -1
-  
-  // Relations
-  discussion   Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Timestamps
+model DiscussionParticipantState {
+  id              String    @id @default(uuid())
+  discussionId    String
+  userId          String
+  lastReadReplyId String?
+  lastReadAt      DateTime?
+  lastSentAt      DateTime?
+
+  discussion    Discussion       @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadReply DiscussionReply? @relation("DiscussionReadCursor", fields: [lastReadReplyId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
-  
+  updatedAt DateTime @updatedAt
+
   @@unique([discussionId, userId])
-  @@index([discussionId])
-  @@index([userId])
-}
-
-model ReplyVote {
-  id       String @id @default(uuid())
-  replyId  String
-  userId   String
-  value   Int    // 1 or -1
-  
-  // Relations
-  reply     DiscussionReply @relation(fields: [replyId], references: [id], onDelete: Cascade)
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Timestamps
-  createdAt DateTime @default(now())
-  
-  @@unique([replyId, userId])
-  @@index([replyId])
-  @@index([userId])
-}
-
-enum CreditTransactionType {
-  REGISTRATION
-  MATERIAL_PUBLISH
-  MATERIAL_PASSIVE
-  MATERIAL_UNLOCK
-  DISCUSSION_CREATE
-  DISCUSSION_REPLY
-  DISCUSSION_REFUND
-  DISCUSSION_HELP
-  GROUP_SESSION_PARTICIPATE
-  GROUP_SESSION_FACILITATE
-  GROUP_SESSION_CANCEL_PENALTY
-  GROUP_SESSION_NO_SHOW_PENALTY
-  SPRINT_ENTRY
-  SPRINT_PAYOUT
-  SPECIAL_EVENT
-  DAILY_WHEEL
-}
-
-model CreditTransaction {
-  id           String                @id @default(uuid())
-  userId       String
-  amount       Float                 // Positive = earned, negative = spent
-  balanceAfter Float                 // Snapshot of balance after transaction
-  type         CreditTransactionType
-  referenceId  String?               // For lookups: replyId (DISCUSSION_HELP), materialId, etc.
-  metadata     Json?                 // e.g. { materialId, discussionId, etc. }
-  
-  // Relations
-  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dailyWheelSpin DailyWheelSpin?
-  
-  createdAt DateTime              @default(now())
-  
-  @@index([userId])
-  @@index([userId, amount])
-  @@index([userId, type])
-  @@unique([userId, type, referenceId])
-  @@index([type])
-  @@index([referenceId])
-  @@index([createdAt])
-}
-
-model MaterialAccess {
-  id         String   @id @default(uuid())
-  userId     String
-  materialId String
-  
-  // Relations
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  
-  createdAt  DateTime @default(now())
-  
-  @@unique([userId, materialId])
-  @@index([userId])
-  @@index([materialId])
+  @@index([userId, updatedAt])
+  @@index([discussionId, lastReadAt])
+  @@index([lastReadReplyId])
+  @@index([lastSentAt])
 }

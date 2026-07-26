@@ -47,12 +47,3 @@ export async function issueEmailVerificationToken(userId: string): Promise<{ tok
 
   return { token, expiresAt };
 }
-
-export async function isUserEmailVerified(userId: string): Promise<boolean> {
-  const user = await prisma.user.findFirst({
-    where: { id: userId, deletedAt: null },
-    select: { emailVerifiedAt: true },
-  });
-  if (!user) return false;
-  return Boolean(user.emailVerifiedAt);
-}

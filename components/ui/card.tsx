@@ -3,14 +3,29 @@
 import * as React from 'react';
 import { cn } from '@/src/lib/utils';
 
+type CardVariant = 'default' | 'subtle' | 'interactive' | 'outline';
+
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** Choose the surface by context instead of restyling cards per page. */
+  variant?: CardVariant;
+}
+
+const cardVariants: Record<CardVariant, string> = {
+  default: 'card-frame bg-card',
+  subtle: 'rounded-xl bg-secondary',
+  interactive: 'card-frame interactive-card bg-card',
+  outline: 'rounded-xl border border-border/60 bg-transparent',
+};
+
 const Card = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
+  CardProps
+>(({ className, variant = 'default', ...props }, ref) => (
   <div
     ref={ref}
     className={cn(
-      'card-frame bg-card text-card-foreground transition-colors duration-200',
+      'text-card-foreground',
+      cardVariants[variant],
       className
     )}
     {...props}
@@ -24,7 +39,7 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('flex flex-col gap-1 p-4 pb-3', className)}
+    className={cn('flex flex-col gap-1.5 p-4 pb-2.5', className)}
     {...props}
   />
 ));
@@ -37,7 +52,7 @@ const CardTitle = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      'text-xl font-medium tracking-tight text-foreground',
+      'text-base font-semibold tracking-[-0.015em] text-foreground',
       className
     )}
     {...props}
@@ -51,7 +66,7 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('text-sm text-muted-foreground leading-relaxed', className)}
+    className={cn('text-sm leading-5 text-muted-foreground', className)}
     {...props}
   />
 ));
@@ -71,7 +86,7 @@ const CardFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('flex items-center gap-3 px-4 pb-4 pt-0', className)}
+    className={cn('flex items-center gap-2 px-4 pb-4 pt-0', className)}
     {...props}
   />
 ));

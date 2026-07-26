@@ -35,7 +35,6 @@ try {
 
 requireHttpsUrl('NEXTAUTH_URL', { originOnly: true });
 requireLength('NEXTAUTH_SECRET', 32);
-requireLength('REGISTRATION_TOKEN_SECRET', 32);
 requireLength('GUARDIAN_VERIFICATION_SECRET', 32);
 requireLength('CRON_SECRET', 32);
 requireHttpsUrl('UPSTASH_REDIS_REST_URL');
@@ -69,11 +68,7 @@ if (value('R2_ENDPOINT')) {
     // The URL validation above reports the malformed value.
   }
 }
-for (const [name, fallback] of [
-  ['R2_DISCUSSIONS_PREFIX', 'discussions'],
-  ['R2_ANNOUNCEMENTS_PREFIX', 'announcements'],
-  ['R2_SPRINT_SUBMISSIONS_PREFIX', 'sprint-submissions'],
-]) {
+for (const [name, fallback] of [['R2_DISCUSSIONS_PREFIX', 'discussions']]) {
   const prefix = value(name) || fallback;
   if (prefix.length > 120 || !objectPrefixPattern.test(prefix)) {
     errors.push(`${name} must be a safe slash-separated object prefix.`);
@@ -81,7 +76,6 @@ for (const [name, fallback] of [
 }
 const secretNames = [
   'NEXTAUTH_SECRET',
-  'REGISTRATION_TOKEN_SECRET',
   'GUARDIAN_VERIFICATION_SECRET',
   'CRON_SECRET',
 ];

@@ -1,6 +1,7 @@
 import { SiteHeader } from '@/src/components/layout/site-header';
 import { SiteFooter } from '@/src/components/layout/site-footer';
 import { BrandText } from '@/src/components/ui/brand-text';
+import { PublicPageShell } from '@/src/components/ui/public-page-shell';
 import { getI18n } from '@/src/i18n/server';
 
 export const metadata = {
@@ -11,9 +12,9 @@ export default async function GdprPage() {
   const { messages } = await getI18n();
   const copy = messages.legals.gdpr;
   return (
-    <div className="landing-light min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <SiteHeader showSpacer={false} showSeparator />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 pb-20 pt-20 sm:px-6 lg:px-8">
+      <PublicPageShell>
         <div className="space-y-4">
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
             <BrandText>{copy.title}</BrandText>
@@ -92,7 +93,7 @@ export default async function GdprPage() {
             </p>
           </div>
         </section>
-      </main>
+      </PublicPageShell>
       <SiteFooter />
     </div>
   );

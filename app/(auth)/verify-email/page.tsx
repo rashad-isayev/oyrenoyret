@@ -73,7 +73,7 @@ export default function VerifyEmailPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, copy.failed, copy.success, messages, t]);
+  }, [token, copy.failed, copy.success, copy.verified, messages, t]);
 
   const isSessionVerified = sessionUser
     ? Boolean(sessionUser.emailVerifiedAt)
@@ -112,17 +112,17 @@ export default function VerifyEmailPage() {
           type="button"
           variant="ghost"
           size="sm"
-          className="h-10 flex-1 text-sm font-medium gap-1"
+          className="flex-1"
           onClick={() => router.push(sessionUser ? '/dashboard' : '/')}
         >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+          <ArrowLeft className="h-3.5 w-3.5" data-directional-arrow="backward" aria-hidden />
           {copy.backHome}
         </Button>
         <Button
           type="button"
           variant="primary"
           size="sm"
-          className="h-10 flex-1 text-sm font-medium"
+          className="flex-1"
           onClick={async () => {
             try {
               const res = await fetch('/api/auth/send-email-verification', {

@@ -10,6 +10,7 @@ import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/src/i18n/i18n-provider';
 
@@ -36,7 +37,7 @@ export default function ForgotPasswordPage() {
       }
       toast.success(copy.success);
       setEmail('');
-    } catch (error) {
+    } catch {
       toast.error(copy.error);
     } finally {
       setIsSubmitting(false);
@@ -51,30 +52,26 @@ export default function ForgotPasswordPage() {
       </header>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <label
-            htmlFor="reset-email"
-            className="text-xs font-medium text-muted-foreground"
-          >
+        <Field>
+          <FieldLabel htmlFor="reset-email">
             {copy.emailLabel}
-          </label>
+          </FieldLabel>
           <Input
             id="reset-email"
             type="email"
             placeholder={placeholders.email}
-            className="h-10 rounded-lg bg-background/70"
             maxLength={254}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             required
           />
-        </div>
+        </Field>
 
         <Button
           type="submit"
           variant="primary"
           size="lg"
-          className="h-10 w-full text-sm font-medium"
+          className="w-full"
           disabled={isSubmitting}
         >
           {isSubmitting ? copy.sending : copy.send}

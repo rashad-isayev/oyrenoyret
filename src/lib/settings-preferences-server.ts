@@ -2,16 +2,11 @@ import { cookies } from 'next/headers';
 import {
   LANGUAGE_COOKIE,
   TIME_FORMAT_COOKIE,
+  TIME_ZONE_COOKIE,
+  getSystemTimeZone,
   normalizeLanguage,
   normalizeTimeFormat,
-  NOTIFY_REPLIES_COOKIE,
-  NOTIFY_CREDITS_COOKIE,
-  NOTIFY_SPRINTS_COOKIE,
-  NOTIFY_GUIDED_GROUP_SESSIONS_COOKIE,
-  normalizeNotifyReplies,
-  normalizeNotifyCredits,
-  normalizeNotifySprints,
-  normalizeNotifyGuidedGroupSessions,
+  normalizeTimeZone,
 } from '@/src/lib/settings-preferences';
 
 export async function getSettingsPreferences() {
@@ -30,11 +25,7 @@ export async function getSettingsPreferences() {
   return {
     language: normalizeLanguage(getCookie?.(LANGUAGE_COOKIE)?.value),
     timeFormat: normalizeTimeFormat(getCookie?.(TIME_FORMAT_COOKIE)?.value),
-    notifications: {
-      replies: normalizeNotifyReplies(getCookie?.(NOTIFY_REPLIES_COOKIE)?.value),
-      credits: normalizeNotifyCredits(getCookie?.(NOTIFY_CREDITS_COOKIE)?.value),
-      sprints: normalizeNotifySprints(getCookie?.(NOTIFY_SPRINTS_COOKIE)?.value),
-      guidedGroupSessions: normalizeNotifyGuidedGroupSessions(getCookie?.(NOTIFY_GUIDED_GROUP_SESSIONS_COOKIE)?.value),
-    },
+    timeZone:
+      normalizeTimeZone(getCookie?.(TIME_ZONE_COOKIE)?.value) ?? getSystemTimeZone(),
   };
 }

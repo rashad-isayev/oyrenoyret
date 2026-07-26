@@ -1,28 +1,39 @@
 /**
  * Archive Discussions Cron
  *
- * Archives discussions with no interaction for 24 hours
- * (override with DISCUSSION_INACTIVITY_HOURS env var).
- * Removes discussions with zero replies and refunds the creation credit.
+ * Archives established conversations after prolonged inactivity and removes
+ * empty discussions sooner.
  * Call via: GET /api/cron/archive-discussions
  * SECURITY: In production, CRON_SECRET must be set and passed as Bearer token.
  */
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/src/db/client';
-import { refundDiscussionCreate } from '@/src/modules/credits';
 import { RATE_LIMITS } from '@/src/config/constants';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
 import { hasValidBearerSecret } from '@/src/security/bearer-secret';
 
 export const runtime = 'nodejs';
 
-const DEFAULT_INACTIVITY_HOURS = 24;
-const parsedHours = Number(process.env.DISCUSSION_INACTIVITY_HOURS);
-const inactivityHours =
-  Number.isFinite(parsedHours) && parsedHours > 0 ? parsedHours : DEFAULT_INACTIVITY_HOURS;
-const ARCHIVE_THRESHOLD_MS = inactivityHours * 60 * 60 * 1000;
-const REMOVE_THRESHOLD_MS = ARCHIVE_THRESHOLD_MS;
+const DEFAULT_ARCHIVE_INACTIVITY_HOURS = 30 * 24;
+const DEFAULT_EMPTY_INACTIVITY_HOURS = 24;
+const parsedArchiveHours = Number(
+  process.env.DISCUSSION_ARCHIVE_INACTIVITY_HOURS ??
+    process.env.DISCUSSION_INACTIVITY_HOURS,
+);
+const parsedEmptyHours = Number(
+  process.env.DISCUSSION_EMPTY_INACTIVITY_HOURS,
+);
+const archiveInactivityHours =
+  Number.isFinite(parsedArchiveHours) && parsedArchiveHours > 0
+    ? parsedArchiveHours
+    : DEFAULT_ARCHIVE_INACTIVITY_HOURS;
+const emptyInactivityHours =
+  Number.isFinite(parsedEmptyHours) && parsedEmptyHours > 0
+    ? parsedEmptyHours
+    : DEFAULT_EMPTY_INACTIVITY_HOURS;
+const ARCHIVE_THRESHOLD_MS = archiveInactivityHours * 60 * 60 * 1000;
+const REMOVE_THRESHOLD_MS = emptyInactivityHours * 60 * 60 * 1000;
 
 export async function GET(request: Request) {
   try {
@@ -77,16 +88,14 @@ export async function GET(request: Request) {
 
     let archivedCount = 0;
     let removedCount = 0;
-    let refundedCount = 0;
     let skippedCount = 0;
 
     if (candidates.length === 0) {
       return NextResponse.json({
         archived: 0,
         removed: 0,
-        refunded: 0,
         skipped: 0,
-        message: 'Archived 0, removed 0 (refunded 0).',
+        message: 'Archived 0, removed 0.',
       });
     }
 
@@ -119,18 +128,13 @@ export async function GET(request: Request) {
             return { status: 'skipped' as const };
           }
 
-          const refund = await refundDiscussionCreate(discussion.userId, discussion.id, tx);
-          if (!refund.success) {
-            throw new Error(refund.error ?? 'Refund failed');
-          }
           await tx.discussion.delete({ where: { id: discussion.id } });
-          return { status: 'removed' as const, refunded: refund.amount > 0 };
+          return { status: 'removed' as const };
         });
 
         if (outcome.status === 'removed') {
           removedCount += 1;
           removedIds.push(candidate.id);
-          if (outcome.refunded) refundedCount += 1;
         } else {
           skippedCount += 1;
         }
@@ -163,9 +167,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       archived: archivedCount,
       removed: removedCount,
-      refunded: refundedCount,
       skipped: skippedCount,
-      message: `Archived ${archivedCount}, removed ${removedCount} (refunded ${refundedCount}).`,
+      message: `Archived ${archivedCount}, removed ${removedCount}.`,
     });
   } catch (error) {
     console.error('Error archiving discussions:', error);

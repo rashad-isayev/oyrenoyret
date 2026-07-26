@@ -1,5 +1,5 @@
 /**
- * Single Discussion API - GET discussion with nested replies
+ * Single Discussion API - GET discussion with one chronological message stream
  */
 
 import { NextResponse } from 'next/server';
@@ -8,8 +8,14 @@ import { getCurrentSession } from '@/src/modules/auth/utils/session';
 import { RATE_LIMITS } from '@/src/config/constants';
 import { getPrivateNoStoreHeaders } from '@/src/lib/http-cache';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
-import { refundDiscussionCreate } from '@/src/modules/credits';
 import { isDbSchemaMismatch } from '@/src/db/schema-mismatch';
+import { getPublicErrorMessage } from '@/src/security/public-error';
+import { requirePlatformContentAccess } from '@/src/modules/auth/utils/write-access';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
+import {
+  DISCUSSION_SLOWMODE_SECONDS,
+  getDiscussionSlowmodeRetrySeconds,
+} from '@/src/config/discussions';
 
 export const runtime = 'nodejs';
 
@@ -20,8 +26,6 @@ function classifyDiscussionDetailError(error: unknown): { status: number; code: 
       : typeof error === 'string'
         ? error
         : '';
-  const message = rawMessage || 'Internal server error';
-
   if (rawMessage.includes('DATABASE_URL is not set')) {
     return { status: 503, code: 'DB_NOT_CONFIGURED', message: 'Database is not configured.' };
   }
@@ -30,7 +34,11 @@ function classifyDiscussionDetailError(error: unknown): { status: number; code: 
     return { status: 503, code: 'DB_SCHEMA_MISMATCH', message: 'Database schema is out of date.' };
   }
 
-  return { status: 500, code: 'INTERNAL', message };
+  return {
+    status: 500,
+    code: 'INTERNAL',
+    message: getPublicErrorMessage(error),
+  };
 }
 
 export async function GET(
@@ -40,9 +48,26 @@ export async function GET(
   try {
     const { id } = await params;
     const currentUserId = await getCurrentSession();
-    const currentUser = currentUserId
-      ? await prisma.user.findUnique({ where: { id: currentUserId }, select: { role: true } })
-      : null;
+    if (!currentUserId) {
+      return NextResponse.json(
+        { error: 'Unauthorized', errorKey: 'unauthorized' },
+        { status: 401, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const contentAccess = await requirePlatformContentAccess(currentUserId);
+    if (!contentAccess.ok) {
+      return NextResponse.json(
+        {
+          error: 'error' in contentAccess ? contentAccess.error : 'Unauthorized',
+          errorKey: contentAccess.errorKey,
+        },
+        { status: contentAccess.status, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const currentUser = await prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: { role: true },
+    });
     const isAdminUser = currentUser?.role === 'ADMIN';
 
     const identifier = getRateLimitIdentifier(request, currentUserId);
@@ -58,11 +83,9 @@ export async function GET(
         id: true,
         title: true,
         content: true,
-        subjectId: true,
-        topicId: true,
+        tags: true,
         lastActivityAt: true,
         archivedAt: true,
-        acceptedReplyId: true,
         removedAt: true,
         removedReason: true,
         createdAt: true,
@@ -74,15 +97,6 @@ export async function GET(
           },
         },
         replies: {
-          where: isAdminUser
-            ? { parentReplyId: null }
-            : {
-                parentReplyId: null,
-                OR: [
-                  { removedAt: null },
-                  ...(currentUserId ? [{ userId: currentUserId }] : []),
-                ],
-              },
           orderBy: { createdAt: 'asc' },
           select: {
             id: true,
@@ -97,31 +111,6 @@ export async function GET(
                 lastName: true,
               },
             },
-            childReplies: {
-              where: isAdminUser
-                ? {}
-                : {
-                    OR: [
-                      { removedAt: null },
-                      ...(currentUserId ? [{ userId: currentUserId }] : []),
-                    ],
-                  },
-              orderBy: { createdAt: 'asc' },
-              select: {
-                id: true,
-                content: true,
-                createdAt: true,
-                removedAt: true,
-                removedReason: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                  },
-                },
-              },
-            },
           },
         },
       },
@@ -134,48 +123,41 @@ export async function GET(
       return NextResponse.json({ error: 'Discussion not found' }, { status: 404 });
     }
 
-    const allReplyIds = [
-      ...discussion.replies.map((r) => r.id),
-      ...discussion.replies.flatMap((r) => r.childReplies.map((c) => c.id)),
-    ];
+    const participantState = await prisma.discussionParticipantState.findUnique({
+      where: {
+        discussionId_userId: {
+          discussionId: discussion.id,
+          userId: currentUserId,
+        },
+      },
+      select: {
+        lastReadAt: true,
+        lastReadReplyId: true,
+        lastSentAt: true,
+      },
+    });
 
-    const [discussionVoteSum, currentUserVote, replyVoteScores, currentUserReplyVotes] = await Promise.all([
-      prisma.discussionVote.aggregate({
-        where: { discussionId: id },
-        _sum: { value: true },
-      }),
-      currentUserId
-        ? prisma.discussionVote.findUnique({
-          where: { discussionId_userId: { discussionId: id, userId: currentUserId } },
-          select: { value: true },
-        })
-        : Promise.resolve(null),
-      allReplyIds.length
-        ? prisma.replyVote.groupBy({
-          by: ['replyId'],
-          where: { replyId: { in: allReplyIds } },
-          _sum: { value: true },
-        })
-        : Promise.resolve([]),
-      currentUserId && allReplyIds.length
-        ? prisma.replyVote.findMany({
-          where: { userId: currentUserId, replyId: { in: allReplyIds } },
-          select: { replyId: true, value: true },
-        })
-        : Promise.resolve([]),
-    ]);
-
-    const replyScoreMap = Object.fromEntries(
-      replyVoteScores.map((v) => [v.replyId, v._sum.value ?? 0])
-    );
-
-    const currentUserReplyVoteMap = Object.fromEntries(
-      currentUserReplyVotes.map((v) => [v.replyId, v.value])
-    );
+    const lastReadReplyIndex = participantState?.lastReadReplyId
+      ? discussion.replies.findIndex(
+          (reply) => reply.id === participantState.lastReadReplyId,
+        )
+      : -1;
+    const firstUnreadReply =
+      participantState == null
+        ? null
+        : lastReadReplyIndex >= 0
+          ? discussion.replies[lastReadReplyIndex + 1] ?? null
+          : participantState.lastReadAt
+            ? discussion.replies.find(
+                (reply) =>
+                  reply.createdAt.getTime() >
+                  participantState.lastReadAt!.getTime(),
+              ) ?? null
+            : null;
 
     const formatReply = (r: (typeof discussion.replies)[0]) => ({
       id: r.id,
-      content: r.content,
+      content: r.removedAt ? '' : r.content,
       createdAt: r.createdAt,
       removedAt: r.removedAt,
       removedReason: r.removedReason,
@@ -183,47 +165,121 @@ export async function GET(
       authorName:
         [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') ||
         'Student',
-      voteScore: replyScoreMap[r.id] ?? 0,
-      userVote: currentUserReplyVoteMap[r.id] ?? null,
-      childReplies: r.childReplies.map((c) => ({
-        id: c.id,
-        content: c.content,
-        createdAt: c.createdAt,
-        removedAt: c.removedAt,
-        removedReason: c.removedReason,
-        authorId: c.user.id,
-        authorName:
-          [c.user.firstName, c.user.lastName].filter(Boolean).join(' ') ||
-          'Student',
-        voteScore: replyScoreMap[c.id] ?? 0,
-        userVote: currentUserReplyVoteMap[c.id] ?? null,
-      })),
     });
 
     return NextResponse.json({
       id: discussion.id,
       title: discussion.title,
       content: discussion.content,
-      subjectId: discussion.subjectId,
-      topicId: discussion.topicId,
+      tags: discussion.tags,
       lastActivityAt: discussion.lastActivityAt,
       createdAt: discussion.createdAt,
       archivedAt: discussion.archivedAt,
       removedAt: discussion.removedAt,
       removedReason: discussion.removedReason,
       authorId: discussion.user.id,
-      acceptedReplyId: discussion.acceptedReplyId,
       authorName:
         [discussion.user.firstName, discussion.user.lastName].filter(Boolean).join(' ') ||
         'Student',
-      voteScore: discussionVoteSum._sum.value ?? 0,
-      userVote: currentUserVote?.value ?? null,
       replies: discussion.replies.map(formatReply),
-      currentUserId: currentUserId ?? null,
+      currentUserId,
+      unreadBoundaryId: firstUnreadReply?.id ?? null,
+      slowmodeSeconds: DISCUSSION_SLOWMODE_SECONDS,
+      slowmodeRetryAfterSeconds:
+        getDiscussionSlowmodeRetrySeconds(participantState?.lastSentAt),
     }, { headers: getPrivateNoStoreHeaders() });
   } catch (error) {
     const classified = classifyDiscussionDetailError(error);
     console.error('Error fetching discussion:', error);
+    return NextResponse.json(
+      { error: classified.message, code: classified.code },
+      { status: classified.status, headers: { 'x-oy-error-code': classified.code } },
+    );
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const userId = await getCurrentSession();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { requireVerifiedEmailForWrite } = await import('@/src/modules/auth/utils/write-access');
+    const verified = await requireVerifiedEmailForWrite(userId);
+    if (!verified.ok) {
+      return NextResponse.json(
+        { error: 'error' in verified ? verified.error : 'Unauthorized', errorKey: verified.errorKey },
+        { status: verified.status },
+      );
+    }
+
+    const identifier = getRateLimitIdentifier(request, userId);
+    const rateLimit = await checkRateLimit(`discussions:update:${identifier}`, RATE_LIMITS.WRITE);
+    if (!rateLimit.allowed) {
+      const { status, body, headers } = buildRateLimitResponse(rateLimit);
+      return NextResponse.json(body, { status, headers });
+    }
+
+    const { id } = await params;
+    const bodyResult = await readJsonBody<{ action?: unknown }>(
+      request,
+      JSON_BODY_LIMITS.SMALL,
+    );
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { error: bodyResult.error },
+        { status: bodyResult.status, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const body = bodyResult.value;
+    const action = typeof body?.action === 'string' ? body.action : null;
+
+    if (action !== 'end') {
+      return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
+    }
+
+    const discussion = await prisma.discussion.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        archivedAt: true,
+        removedAt: true,
+      },
+    });
+
+    if (!discussion || discussion.removedAt) {
+      return NextResponse.json({ error: 'Discussion not found' }, { status: 404 });
+    }
+
+    if (discussion.userId !== userId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    if (discussion.archivedAt) {
+      return NextResponse.json(
+        { ok: true, alreadyEnded: true, archivedAt: discussion.archivedAt },
+        { headers: getPrivateNoStoreHeaders() },
+      );
+    }
+
+    const ended = await prisma.discussion.update({
+      where: { id },
+      data: { archivedAt: new Date() },
+      select: { id: true, archivedAt: true },
+    });
+
+    return NextResponse.json(
+      { ok: true, ended: true, archivedAt: ended.archivedAt },
+      { headers: getPrivateNoStoreHeaders() },
+    );
+  } catch (error) {
+    const classified = classifyDiscussionDetailError(error);
+    console.error('Error ending discussion:', error);
     return NextResponse.json(
       { error: classified.message, code: classified.code },
       { status: classified.status, headers: { 'x-oy-error-code': classified.code } },
@@ -279,17 +335,10 @@ export async function DELETE(
     const replyCount = await prisma.discussionReply.count({ where: { discussionId: id } });
 
     if (replyCount === 0) {
-      const outcome = await prisma.$transaction(async (tx) => {
-        const refund = await refundDiscussionCreate(userId, id, tx);
-        if (!refund.success) {
-          throw new Error(refund.error ?? 'Refund failed');
-        }
-        await tx.discussion.delete({ where: { id } });
-        return { refunded: refund.amount > 0 };
-      });
+      await prisma.discussion.delete({ where: { id } });
 
       return NextResponse.json(
-        { ok: true, deleted: true, refunded: outcome.refunded },
+        { ok: true, deleted: true },
         { headers: getPrivateNoStoreHeaders() },
       );
     }

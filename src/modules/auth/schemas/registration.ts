@@ -22,14 +22,9 @@ export interface AuthValidationMessages {
   passwordNumber: string;
   passwordSpecial: string;
   confirmPasswordRequired: string;
-  gradeRequired: string;
   passwordsMismatch: string;
-  parentFirstNameRequired: string;
-  parentLastNameRequired: string;
-  parentEmailRequired: string;
   verificationLength: string;
   verificationDigits: string;
-  consentRequired: string;
   loginPasswordRequired: string;
 }
 
@@ -48,25 +43,52 @@ export const DEFAULT_VALIDATION_MESSAGES: AuthValidationMessages = {
   passwordNumber: 'Password must contain at least one number',
   passwordSpecial: 'Password must contain at least one special character',
   confirmPasswordRequired: 'Please confirm your password',
-  gradeRequired: 'Please select a grade',
   passwordsMismatch: 'Passwords do not match',
-  parentFirstNameRequired: 'Parent/guardian first name is required',
-  parentLastNameRequired: 'Parent/guardian last name is required',
-  parentEmailRequired: 'Parent/guardian email is required',
   verificationLength: 'Verification code must be 6 digits',
   verificationDigits: 'Verification code must contain only numbers',
-  consentRequired: 'You must grant consent to proceed',
   loginPasswordRequired: 'Password is required',
 };
 
 /**
- * Step 1: Student Information
+ * Email verification
  */
-export const studentInfoSchema = createStudentInfoSchema(DEFAULT_VALIDATION_MESSAGES);
+export const verificationCodeSchema = createVerificationCodeSchema(DEFAULT_VALIDATION_MESSAGES);
 
-export function createStudentInfoSchema(messages: AuthValidationMessages) {
-  return z
-    .object({
+export function createVerificationCodeSchema(messages: AuthValidationMessages) {
+  return z.object({
+    code: z
+      .string()
+      .length(6, messages.verificationLength)
+      .regex(/^\d+$/, messages.verificationDigits),
+  });
+}
+
+export type VerificationCodeInput = z.infer<typeof verificationCodeSchema>;
+
+export const LEARNING_MOTIVATIONS = [
+  'school',
+  'career',
+  'curiosity',
+  'confidence',
+] as const;
+
+export const WEEKLY_LEARNING_GOALS = [
+  'light',
+  'steady',
+  'ambitious',
+] as const;
+
+export const learningProfileSchema = z.object({
+  learningMotivation: z.enum(LEARNING_MOTIVATIONS),
+  declaredAge: z.number().int().min(5).max(100),
+  weeklyLearningGoal: z.enum(WEEKLY_LEARNING_GOALS),
+});
+
+export type LearningProfileInput = z.infer<typeof learningProfileSchema>;
+
+export function createOnboardingAccountSchema(messages: AuthValidationMessages) {
+  return learningProfileSchema
+    .extend({
       firstName: z
         .string()
         .min(1, messages.firstNameRequired)
@@ -74,7 +96,6 @@ export function createStudentInfoSchema(messages: AuthValidationMessages) {
         .trim(),
       lastName: z
         .string()
-        .min(1, messages.lastNameRequired)
         .max(50, messages.lastNameMax)
         .trim(),
       email: z
@@ -96,9 +117,6 @@ export function createStudentInfoSchema(messages: AuthValidationMessages) {
         .string()
         .min(1, messages.confirmPasswordRequired)
         .max(72, messages.passwordMax),
-      grade: z.enum(['5', '6', '7', '8', '9', '10', '11', '12'], {
-        message: messages.gradeRequired,
-      }),
     })
     .refine((data) => data.password === data.confirmPassword, {
       message: messages.passwordsMismatch,
@@ -106,67 +124,26 @@ export function createStudentInfoSchema(messages: AuthValidationMessages) {
     });
 }
 
-export type StudentInfoInput = z.infer<typeof studentInfoSchema>;
+export const onboardingAccountSchema = createOnboardingAccountSchema(
+  DEFAULT_VALIDATION_MESSAGES,
+);
+export type OnboardingAccountInput = z.infer<typeof onboardingAccountSchema>;
 
-/**
- * Step 2: Parent/Guardian Information
- */
-export const parentInfoSchema = createParentInfoSchema(DEFAULT_VALIDATION_MESSAGES);
+export const pendingOnboardingEmailSchema = z.object({
+  email: z.string().min(1).email().max(254).toLowerCase().trim(),
+  password: z.string().min(1).max(72),
+});
 
-export function createParentInfoSchema(messages: AuthValidationMessages) {
-  return z.object({
-    parentFirstName: z
-      .string()
-      .min(1, messages.parentFirstNameRequired)
-      .max(50, messages.firstNameMax)
-      .trim(),
-    parentLastName: z
-      .string()
-      .min(1, messages.parentLastNameRequired)
-      .max(50, messages.lastNameMax)
-      .trim(),
-    parentEmail: z
-      .string()
-      .min(1, messages.parentEmailRequired)
-      .email(messages.emailInvalid)
-      .max(254, messages.emailMax)
-      .toLowerCase()
-      .trim(),
-  });
-}
+export type PendingOnboardingEmailInput = z.infer<
+  typeof pendingOnboardingEmailSchema
+>;
 
-export type ParentInfoInput = z.infer<typeof parentInfoSchema>;
+export const onboardingGuidelinesSchema = z.object({
+  guidelinesAccepted: z.literal(true),
+  guardianAuthorityAccepted: z.boolean().optional(),
+});
 
-/**
- * Step 3: Parent Email Verification
- */
-export const verificationCodeSchema = createVerificationCodeSchema(DEFAULT_VALIDATION_MESSAGES);
-
-export function createVerificationCodeSchema(messages: AuthValidationMessages) {
-  return z.object({
-    code: z
-      .string()
-      .length(6, messages.verificationLength)
-      .regex(/^\d+$/, messages.verificationDigits),
-  });
-}
-
-export type VerificationCodeInput = z.infer<typeof verificationCodeSchema>;
-
-/**
- * Step 4: Parental Consent
- */
-export const consentSchema = createConsentSchema(DEFAULT_VALIDATION_MESSAGES);
-
-export function createConsentSchema(messages: AuthValidationMessages) {
-  return z.object({
-    consentGranted: z.boolean().refine((val) => val === true, {
-      message: messages.consentRequired,
-    }),
-  });
-}
-
-export type ConsentInput = z.infer<typeof consentSchema>;
+export type OnboardingGuidelinesInput = z.infer<typeof onboardingGuidelinesSchema>;
 
 /**
  * Login Schema

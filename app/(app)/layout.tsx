@@ -10,7 +10,6 @@ import { redirect } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 import { getCurrentSession } from '@/src/modules/auth/utils/session';
 import { getAppUser } from '@/src/modules/auth/utils/app-user';
-import { roundCredits } from '@/src/modules/credits';
 import { AppShell } from '@/src/components/layout/app-shell';
 import { AVATAR_VARIANTS, type AvatarVariant } from '@/src/lib/avatar';
 
@@ -32,8 +31,6 @@ export default async function AppLayout({
 
   const displayName =
     [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email.split('@')[0];
-  const isStaff = user.role === 'ADMIN' || user.role === 'TEACHER';
-  const showTutorial = !isStaff && !user.tutorialCompletedAt;
   const avatarVariant: AvatarVariant = AVATAR_VARIANTS.includes(user.avatarVariant as AvatarVariant)
     ? (user.avatarVariant as AvatarVariant)
     : 'regular';
@@ -61,16 +58,25 @@ export default async function AppLayout({
         lastName: user.lastName,
         avatarVariant,
         email: user.email,
-        credits: user.credits != null ? roundCredits(user.credits) : undefined,
         role: user.role,
         status: user.status,
         emailVerifiedAt: user.emailVerifiedAt ? user.emailVerifiedAt.toISOString() : null,
+        guidelinesAcceptedAt: user.guidelinesAcceptedAt
+          ? user.guidelinesAcceptedAt.toISOString()
+          : null,
+        guidelinesVersion: user.guidelinesVersion,
+        accountOwnerType: user.accountOwnerType,
+        tutorialCompletedAt: user.tutorialCompletedAt
+          ? user.tutorialCompletedAt.toISOString()
+          : null,
+        tutorialSkippedAt: user.tutorialSkippedAt
+          ? user.tutorialSkippedAt.toISOString()
+          : null,
         suspensionUntil: user.suspensionUntil ? user.suspensionUntil.toISOString() : null,
         suspensionReason: user.suspensionReason ?? null,
         bannedAt: user.bannedAt ? user.bannedAt.toISOString() : null,
         banReason: user.banReason ?? null,
       }}
-      showTutorial={showTutorial}
     >
       {gatedChildren}
     </AppShell>

@@ -98,7 +98,6 @@ export async function validateSession(token: string): Promise<string | null> {
 
   if (
     session.expiresAt.getTime() <= Date.now() ||
-    session.user.status === 'INACTIVE' ||
     session.user.deletedAt
   ) {
     await prisma.authSession.deleteMany({ where: { id: session.id } });
@@ -151,8 +150,4 @@ export async function deleteSession(token?: string): Promise<void> {
   }
 
   cookieStore.delete('session_token');
-}
-
-export async function deleteAllUserSessions(userId: string): Promise<void> {
-  await prisma.authSession.deleteMany({ where: { userId } });
 }

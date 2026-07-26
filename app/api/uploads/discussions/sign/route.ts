@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 
 import { MAX_IMAGE_UPLOAD_BYTES } from '@/src/config/uploads';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 export const runtime = 'nodejs';
 
@@ -50,12 +51,17 @@ export async function POST(request: Request) {
       return NextResponse.json(body, { status, headers });
     }
 
-    let body: { size?: unknown; type?: unknown } = {};
-    try {
-      body = await request.json();
-    } catch {
-      body = {};
+    const bodyResult = await readJsonBody<{
+      size?: unknown;
+      type?: unknown;
+    }>(request, JSON_BODY_LIMITS.SMALL);
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { error: bodyResult.error },
+        { status: bodyResult.status },
+      );
     }
+    const body = bodyResult.value;
 
     const size = typeof body.size === 'number' ? body.size : Number(body.size);
     const type = typeof body.type === 'string' ? body.type : String(body.type ?? '');
@@ -83,22 +89,24 @@ export async function POST(request: Request) {
     const { PutObjectCommand } = await import('@aws-sdk/client-s3');
     const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
     const { createR2Client } = await import('@/src/services/r2');
+    const { buildDiscussionImagePutObjectInput } = await import(
+      '@/src/services/discussion-image-storage'
+    );
 
     const prefixBase = getR2ObjectPrefix(process.env.R2_DISCUSSIONS_PREFIX, 'discussions');
     const key = `${prefixBase}/${yyyy}/${mm}/${crypto.randomUUID()}.${ext}`;
     const proxyUrl = `/api/uploads/discussions/file?key=${encodeURIComponent(key)}`;
 
     const client = createR2Client(r2Cfg);
-    const command = new PutObjectCommand({
-      Bucket: r2Cfg.bucket,
-      Key: key,
-      ContentType: type,
-      CacheControl: 'private, max-age=31536000, immutable',
-      Metadata: {
-        'expected-size': String(size),
-        'uploaded-by': userId,
-      },
-    });
+    const command = new PutObjectCommand(
+      buildDiscussionImagePutObjectInput({
+        bucket: r2Cfg.bucket,
+        key,
+        contentType: type,
+        size,
+        userId,
+      }),
+    );
     const ttlRaw = Number(process.env.R2_PRESIGN_TTL_SECONDS ?? 300);
     const ttl = Number.isFinite(ttlRaw) ? Math.min(900, Math.max(30, Math.floor(ttlRaw))) : 300;
     const uploadUrl = await getSignedUrl(client, command, { expiresIn: ttl });

@@ -19,6 +19,7 @@ import {
 import { useI18n } from '@/src/i18n/i18n-provider';
 import { extractErrorMessage, formatErrorToast } from '@/src/lib/error-toast';
 import { AVATAR_VARIANTS, coerceAvatarVariant, getAvatarSrc, type AvatarVariant } from '@/src/lib/avatar';
+import { MediaImage } from '@/src/components/ui/media-image';
 
 type ProfileInput = {
   firstName: string;
@@ -30,10 +31,12 @@ export function AccountProfileForm({
   initialFirstName,
   initialLastName,
   initialAvatarVariant,
+  canWrite = true,
 }: {
   initialFirstName?: string | null;
   initialLastName?: string | null;
   initialAvatarVariant?: string | null;
+  canWrite?: boolean;
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -75,6 +78,7 @@ export function AccountProfileForm({
   const canSubmit = nameChanged || avatarChanged;
 
   const onSubmit = async (data: ProfileInput) => {
+    if (!canWrite) return;
     const firstName = data.firstName.trim();
     const lastName = data.lastName.trim();
     const avatarVariant = data.avatarVariant;
@@ -123,6 +127,7 @@ export function AccountProfileForm({
                         key={variant}
                         type="button"
                         onClick={() => field.onChange(variant)}
+                        disabled={!canWrite}
                         className={[
                           'relative h-10 w-10 overflow-hidden rounded-full ring-1 transition-all',
                           selected
@@ -132,13 +137,12 @@ export function AccountProfileForm({
                         aria-label={`${copy.avatarOptionLabel} ${variant}`}
                         aria-pressed={selected}
                       >
-                        <img
+                        <MediaImage
                           src={getAvatarSrc(variant)}
                           alt=""
                           className="h-full w-full object-cover"
                           width={40}
                           height={40}
-                          decoding="async"
                         />
                       </button>
                     );
@@ -161,10 +165,10 @@ export function AccountProfileForm({
                 </FormLabel>
                 <FormControl>
                   <Input
-                    className="h-10 rounded-lg bg-background/70"
                     maxLength={50}
                     autoComplete="given-name"
                     placeholder={initialFirstName ?? ''}
+                    disabled={!canWrite}
                     {...field}
                   />
                 </FormControl>
@@ -183,10 +187,10 @@ export function AccountProfileForm({
                 </FormLabel>
                 <FormControl>
                   <Input
-                    className="h-10 rounded-lg bg-background/70"
                     maxLength={50}
                     autoComplete="family-name"
                     placeholder={initialLastName ?? ''}
+                    disabled={!canWrite}
                     {...field}
                   />
                 </FormControl>
@@ -200,7 +204,12 @@ export function AccountProfileForm({
           type="submit"
           variant="primary"
           size="sm"
-          disabled={submitting || !form.formState.isValid || !canSubmit}
+          disabled={
+            !canWrite ||
+            submitting ||
+            !form.formState.isValid ||
+            !canSubmit
+          }
         >
           {submitting ? copy.saving : copy.save}
         </Button>

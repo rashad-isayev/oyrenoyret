@@ -30,10 +30,12 @@ export function AccountEmailForm({
   currentEmail,
   hasPassword,
   requiresEmailVerification,
+  canWrite = true,
 }: {
   currentEmail: string;
   hasPassword: boolean;
   requiresEmailVerification: boolean;
+  canWrite?: boolean;
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -65,6 +67,7 @@ export function AccountEmailForm({
   });
 
   const onSubmit = async (data: EmailInput) => {
+    if (!canWrite) return;
     if (!hasPassword) {
       toast.error(copy.passwordNotSet);
       return;
@@ -104,6 +107,7 @@ export function AccountEmailForm({
   };
 
   const resendVerification = async () => {
+    if (!canWrite) return;
     setResending(true);
     try {
       const res = await fetch('/api/auth/send-email-verification', { method: 'POST' });
@@ -138,7 +142,7 @@ export function AccountEmailForm({
               variant="outline"
               size="sm"
               onClick={resendVerification}
-              disabled={resending}
+              disabled={resending || !canWrite}
             >
               {resending ? copy.resending : copy.resend}
             </Button>
@@ -168,11 +172,11 @@ export function AccountEmailForm({
                 <FormControl>
                   <Input
                     type="email"
-                    className="h-10 rounded-lg bg-background/70"
                     maxLength={254}
                     autoComplete="email"
                     placeholder={currentEmail}
                     required
+                    disabled={!canWrite}
                     {...field}
                   />
                 </FormControl>
@@ -191,10 +195,10 @@ export function AccountEmailForm({
                 </FormLabel>
                 <FormControl>
                   <PasswordInput
-                    className="h-10 rounded-lg bg-background/70"
                     maxLength={72}
                     autoComplete="current-password"
                     required
+                    disabled={!canWrite}
                     {...field}
                   />
                 </FormControl>
@@ -207,7 +211,12 @@ export function AccountEmailForm({
             type="submit"
             variant="primary"
             size="sm"
-            disabled={submitting || !form.formState.isValid || !hasPassword}
+            disabled={
+              !canWrite ||
+              submitting ||
+              !form.formState.isValid ||
+              !hasPassword
+            }
           >
             {submitting ? copy.saving : copy.save}
           </Button>

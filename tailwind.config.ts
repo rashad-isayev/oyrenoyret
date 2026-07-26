@@ -4,8 +4,8 @@ import type { Config } from 'tailwindcss';
  * Tailwind CSS Configuration
  *
  * Design system for the Oyrenoyret.org platform.
- * Color palette: Blue primary with neutral tones.
- * Design tone: Academic, trustworthy, calm.
+ * Color palette: ChatGPT/Codex neutral surfaces with a blue action accent.
+ * Design tone: quiet, direct, rounded where functional, and content-first.
  */
 
 const config: Config = {
@@ -19,16 +19,12 @@ const config: Config = {
   theme: {
     extend: {
       fontWeight: {
-        // Typography tuning: GitHub-like contrast without heavy "bold" rendering.
-        // Inter (variable) supports these intermediate weights.
         medium: '500',
-        semibold: '560',
-        // Keep `font-bold` restrained if it appears.
-        bold: '600',
+        semibold: '600',
+        bold: '700',
       },
       fontFamily: {
-        // Use Inter (Next font) everywhere via Tailwind's font-sans
-        sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         comfortaa: ['var(--font-comfortaa)', 'system-ui', 'sans-serif'],
       },
       colors: {
@@ -46,7 +42,6 @@ const config: Config = {
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
-          // Extended palette for custom use
           50: '#eff6ff',
           100: '#dbeafe',
           200: '#bfdbfe',
@@ -71,6 +66,9 @@ const config: Config = {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))',
         },
+        success: 'hsl(var(--success))',
+        info: 'hsl(var(--info))',
+        warning: 'hsl(var(--warning))',
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
@@ -78,26 +76,30 @@ const config: Config = {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
-        // Neutral Palette (Balanced white & black tones)
+        // Exact neutral ramp used by ChatGPT-like content and chrome.
         neutral: {
-          50: '#fafafa',
-          100: '#f5f5f5',
-          200: '#e5e5e5',
-          300: '#d4d4d4',
-          400: '#a3a3a3',
-          500: '#737373',
-          600: '#525252',
-          700: '#404040',
-          800: '#262626',
-          900: '#171717',
-          950: '#0a0a0a',
+          50: '#f9f9f9',
+          100: '#f4f4f4',
+          200: '#e8e8e8',
+          300: '#d0d0d0',
+          400: '#b4b4b4',
+          500: '#8f8f8f',
+          600: '#5d5d5d',
+          700: '#3f3f3f',
+          800: '#2f2f2f',
+          900: '#212121',
+          950: '#0d0d0d',
         },
       },
       borderRadius: {
         lg: 'var(--radius-lg)',
         md: 'var(--radius)',
-        sm: 'calc(var(--radius) - 4px)',
+        sm: 'calc(var(--radius) - 2px)',
         xl: 'var(--radius-xl)',
+      },
+      boxShadow: {
+        card: 'var(--shadow-card)',
+        float: 'var(--shadow-float)',
       },
       animation: {
         'progress-fill': 'progress-fill 0.5s ease-out',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { useSettings } from '@/src/components/settings/settings-provider';
 
 export function AccountRestrictionDialog({
   status,
@@ -25,11 +26,14 @@ export function AccountRestrictionDialog({
   banReason?: string | null;
 }) {
   const restricted = status === 'SUSPENDED' || status === 'BANNED';
-  const [open, setOpen] = useState(restricted);
-
-  useEffect(() => {
-    if (restricted) setOpen(true);
-  }, [restricted, status]);
+  const { timeZone } = useSettings();
+  const restrictionKey = `${status ?? ''}:${suspensionUntil ?? ''}:${reasonKey(
+    status,
+    suspensionReason,
+    banReason,
+  )}`;
+  const [dismissedRestrictionKey, setDismissedRestrictionKey] = useState<string | null>(null);
+  const open = restricted && dismissedRestrictionKey !== restrictionKey;
 
   const title = status === 'BANNED' ? 'Account banned' : 'Account suspended';
   const reason = status === 'BANNED' ? banReason : suspensionReason;
@@ -38,13 +42,18 @@ export function AccountRestrictionDialog({
     if (status !== 'SUSPENDED' || !suspensionUntil) return null;
     const d = new Date(suspensionUntil);
     if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleString();
-  }, [status, suspensionUntil]);
+    return d.toLocaleString(undefined, { timeZone });
+  }, [status, suspensionUntil, timeZone]);
 
   if (!restricted) return null;
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) setDismissedRestrictionKey(restrictionKey);
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -74,3 +83,10 @@ export function AccountRestrictionDialog({
   );
 }
 
+function reasonKey(
+  status: string | null | undefined,
+  suspensionReason: string | null | undefined,
+  banReason: string | null | undefined,
+) {
+  return status === 'BANNED' ? banReason ?? '' : suspensionReason ?? '';
+}

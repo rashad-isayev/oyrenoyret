@@ -5,26 +5,28 @@ import { useRouter } from 'next/navigation';
 import { PiTranslate as Translate, PiClock as Clock } from 'react-icons/pi';
 import type { SettingsLanguage, TimeFormat } from '@/src/lib/settings-preferences';
 import { useI18n } from '@/src/i18n/i18n-provider';
-import { SUPPORTED_LOCALES } from '@/src/i18n';
+import { LOCALE_CONFIG, SUPPORTED_LOCALES } from '@/src/i18n';
 import { Select, SelectItem } from '@/components/ui/select';
 
 interface LanguageTimeControlsProps {
   language: SettingsLanguage;
   timeFormat: TimeFormat;
+  timeZone: string;
 }
 
 export function LanguageTimeControls({
   language,
   timeFormat,
+  timeZone,
 }: LanguageTimeControlsProps) {
   const router = useRouter();
-  const { t, messages } = useI18n();
+  const { t } = useI18n();
   const [currentLanguage, setCurrentLanguage] = useState<SettingsLanguage>(language);
   const [currentTimeFormat, setCurrentTimeFormat] = useState<TimeFormat>(timeFormat);
   const [pending, startTransition] = useTransition();
   const languageOptions = SUPPORTED_LOCALES.map((locale) => ({
     value: locale,
-    label: messages.settings.languageNames[locale] ?? locale,
+    label: LOCALE_CONFIG[locale].nativeName,
   }));
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export function LanguageTimeControls({
 
   return (
     <>
-      <div className="card-frame bg-card/90 p-5 space-y-4">
+      <div className="settings-panel space-y-3 p-4">
         <div className="flex items-start gap-3">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Translate className="h-4 w-4" />
@@ -99,7 +101,7 @@ export function LanguageTimeControls({
         </div>
       </div>
 
-      <div className="card-frame bg-card/90 p-5 space-y-4">
+      <div className="settings-panel space-y-3 p-4">
         <div className="flex items-start gap-3">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Clock className="h-4 w-4" />
@@ -112,6 +114,21 @@ export function LanguageTimeControls({
               {t('settings.languageTime.timeFormatHelp')}
             </p>
           </div>
+        </div>
+
+        <div className="rounded-xl bg-secondary px-4 py-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            {t('settings.languageTime.timeZoneLabel')}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-foreground">{timeZone}</p>
+            <span className="text-xs text-muted-foreground">
+              {t('settings.languageTime.timeZoneValue')}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t('settings.languageTime.timeZoneHelp')}
+          </p>
         </div>
 
         <div className="space-y-2">

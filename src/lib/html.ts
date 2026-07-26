@@ -63,21 +63,3 @@ export function maybeDecodeEscapedHtml(input: string): string {
   }
   return decoded;
 }
-
-export function htmlToPlainTextWithNewlines(input: string): string {
-  const html = maybeDecodeEscapedHtml(input);
-  if (!html) return '';
-
-  const withBreaks = html
-    .replace(/<\s*br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|blockquote|pre)>/gi, '\n');
-
-  // Only strip real tags (e.g. `<p>`) so we don't eat comparison operators like `<` / `>`.
-  return withBreaks
-    .replace(/<\/?[a-z][^>]*>/gi, ' ')
-    .replace(/[ \t\r\f\v]+/g, ' ')
-    .replace(/\s*\n\s*/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-

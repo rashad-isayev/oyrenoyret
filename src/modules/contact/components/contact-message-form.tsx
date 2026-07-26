@@ -8,6 +8,7 @@ import { useI18n } from '@/src/i18n/i18n-provider';
 import { contactMessageSchema, type ContactMessageInput } from '@/src/modules/contact/schemas/contact-message';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 
 export function ContactMessageForm() {
@@ -72,7 +73,7 @@ export function ContactMessageForm() {
                     {copy.nameLabel}
                   </FormLabel>
                   <FormControl>
-                    <Input className="h-10 rounded-lg bg-background/70" {...field} />
+                    <Input {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -88,11 +89,7 @@ export function ContactMessageForm() {
                     {copy.emailLabel}
                   </FormLabel>
                   <FormControl>
-                    <Input
-                      type="email"
-                      className="h-10 rounded-lg bg-background/70"
-                      {...field}
-                    />
+                    <Input type="email" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -109,7 +106,7 @@ export function ContactMessageForm() {
                   {copy.subjectLabel}
                 </FormLabel>
                 <FormControl>
-                  <Input className="h-10 rounded-lg bg-background/70" {...field} />
+                  <Input {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -125,8 +122,8 @@ export function ContactMessageForm() {
                   {copy.messageLabel}
                 </FormLabel>
                 <FormControl>
-                  <textarea
-                    className="min-h-[140px] max-h-[280px] w-full overflow-y-auto rounded-lg border border-input bg-background/70 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/15"
+                  <Textarea
+                    className="min-h-[140px] max-h-[280px] overflow-y-auto"
                     {...field}
                   />
                 </FormControl>
@@ -136,7 +133,7 @@ export function ContactMessageForm() {
           />
 
           <div className="flex items-center justify-end">
-            <Button type="submit" variant="primary" className="h-10" disabled={pending}>
+            <Button type="submit" variant="primary" disabled={pending}>
               {pending ? copy.formSending : copy.formSend}
             </Button>
           </div>

@@ -15,6 +15,7 @@ export const USER_ROLES = {
 } as const;
 
 export const CONSENT_VERSION = '1.0.0';
+export const GUIDELINES_VERSION = '1.0.0';
 
 export const RATE_LIMITS = {
   AUTH: {
@@ -41,16 +42,20 @@ export const RATE_LIMITS = {
     maxRequests: 100,
     windowMs: 15 * 60 * 1000, // 15 minutes
   },
+  STREAM_CONNECT: {
+    // One active room reconnects about 16 times per 15 minutes because the
+    // server intentionally closes streams before common platform timeouts.
+    maxRequests: 30,
+    windowMs: 15 * 60 * 1000, // 15 minutes
+  },
+  MEDIA_READ: {
+    // Media-heavy feeds can legitimately request many immutable assets at once.
+    // Keep this separate so image loading cannot exhaust the general API budget.
+    maxRequests: 600,
+    windowMs: 15 * 60 * 1000, // 15 minutes
+  },
   WRITE: {
     maxRequests: 30,
-    windowMs: 10 * 60 * 1000, // 10 minutes
-  },
-  VOTE: {
-    maxRequests: 120,
-    windowMs: 10 * 60 * 1000, // 10 minutes
-  },
-  UNLOCK: {
-    maxRequests: 20,
     windowMs: 10 * 60 * 1000, // 10 minutes
   },
   CONTACT_MESSAGE: {
@@ -59,10 +64,6 @@ export const RATE_LIMITS = {
   },
   ADMIN_WRITE: {
     maxRequests: 60,
-    windowMs: 10 * 60 * 1000, // 10 minutes
-  },
-  LIVE_EVENT: {
-    maxRequests: 20,
     windowMs: 10 * 60 * 1000, // 10 minutes
   },
   UPLOAD: {
@@ -86,8 +87,6 @@ function parseIntWithClamp(
 
 /** Content length limits for user-generated content (chars) */
 export const CONTENT_LIMITS = {
-  MATERIAL_TITLE_MAX: 200,
-  MATERIAL_CONTENT_MAX: 50_000,
   // Override via env vars (values are read at build-time in the browser bundle):
   // - NEXT_PUBLIC_DISCUSSION_TITLE_MAX
   // - NEXT_PUBLIC_DISCUSSION_CONTENT_MAX
@@ -96,8 +95,8 @@ export const CONTENT_LIMITS = {
   // but the browser bundle will only see NEXT_PUBLIC_ values at runtime.
   DISCUSSION_TITLE_MAX: parseIntWithClamp(
     process.env.NEXT_PUBLIC_DISCUSSION_TITLE_MAX ?? process.env.DISCUSSION_TITLE_MAX,
-    300,
-    { min: 50, max: 2_000 }
+    100,
+    { min: 50, max: 300 }
   ),
   DISCUSSION_CONTENT_MAX: parseIntWithClamp(
     process.env.NEXT_PUBLIC_DISCUSSION_CONTENT_MAX ?? process.env.DISCUSSION_CONTENT_MAX,
@@ -110,19 +109,3 @@ export const CONTENT_LIMITS = {
     { min: 200, max: 50_000 }
   ),
 } as const;
-
-/** Subject catalog for grades 5–11 */
-export const SUBJECTS = [
-  { id: 'mathematics', name: 'Mathematics', description: 'Algebra, geometry, and problem solving' },
-  { id: 'physics', name: 'Physics', description: 'Motion, forces, energy, and the physical world' },
-  { id: 'chemistry', name: 'Chemistry', description: 'Matter, reactions, and the periodic table' },
-  { id: 'biology', name: 'Biology', description: 'Living organisms, cells, and ecosystems' },
-  { id: 'azerbaijani-language', name: 'Azerbaijani Language', description: 'Grammar, composition, and communication' },
-  { id: 'azerbaijani-literature', name: 'Azerbaijani Literature', description: 'Classic and modern literary works' },
-  { id: 'english', name: 'English', description: 'Reading, writing, and language skills' },
-  { id: 'russian', name: 'Russian', description: 'Reading, writing, and conversation' },
-  { id: 'history', name: 'History', description: 'World and regional history' },
-  { id: 'geography', name: 'Geography', description: 'Physical and human geography' },
-  { id: 'information-technology', name: 'Information Technology', description: 'Computers, programming, and digital skills' },
-  { id: 'civics', name: 'Civics', description: 'Government, rights, and citizenship' },
-] as const;

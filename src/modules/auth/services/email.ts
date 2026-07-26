@@ -91,8 +91,8 @@ async function sendResendEmail(payload: ResendEmailPayload): Promise<void> {
 }
 
 /**
- * Sends a verification code to a parent email
- * @param email Parent email address
+ * Sends a registration verification code.
+ * @param email Account or guardian email address
  * @param code 6-digit verification code
  * @returns Promise that resolves when email is sent
  */
@@ -111,7 +111,7 @@ export async function sendVerificationCode(email: string, code: string): Promise
   }
 
   if (isDev) {
-    console.log('[EMAIL SERVICE] Sending guardian verification email.');
+    console.log('[EMAIL SERVICE] Sending registration verification email.');
   }
 
   await sendResendEmail({
@@ -229,9 +229,9 @@ export function generateVerificationEmailHtml(code: string): string {
       </head>
       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h1 style="color: #2563eb;">Email Verification</h1>
-          <p>Thank you for registering your child on oyrenoyret.org.</p>
-          <p>Please use the following verification code to complete the registration:</p>
+          <h1 style="color: #2563eb;">Verify your email</h1>
+          <p>Thank you for creating an account on oyrenoyret.org.</p>
+          <p>Use the following verification code to continue registration:</p>
           <div style="background-color: #f3f4f6; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px;">
             <h2 style="color: #1d4ed8; font-size: 32px; letter-spacing: 4px; margin: 0;">${code}</h2>
           </div>
@@ -327,7 +327,7 @@ export function generateAccountVerificationEmailHtml(verifyUrl: string): string 
       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
           <h1 style="color: #2563eb;">Verify your email</h1>
-          <p>To participate on oyrenoyret.org (join events, create materials, post, vote), please verify your email.</p>
+          <p>To participate on oyrenoyret.org (create discussions and post messages), please verify your email.</p>
           <div style="margin: 20px 0;">
             <a
               href="${safeUrl}"

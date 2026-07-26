@@ -2,14 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
+import {
+  AllSelection,
+  Plugin,
+  PluginKey,
+  TextSelection,
+} from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import SubscriptExtension from '@tiptap/extension-subscript';
 import SuperscriptExtension from '@tiptap/extension-superscript';
 import ImageExtension from '@tiptap/extension-image';
+import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model';
+import type { EditorView } from '@tiptap/pm/view';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/src/lib/utils';
+import {
+  fieldControlFrameStyles,
+  fieldTextStyles,
+} from '@/components/ui/control-styles';
 import {
   PiTextB as Bold,
   PiTextItalic as Italic,
@@ -21,6 +34,7 @@ import {
   PiFunction as Sigma,
   PiImage as ImageIcon,
   PiCircleNotch as Spinner,
+  PiListBullets as ListBullets,
   PiPlus as Plus,
   PiX as X,
 } from 'react-icons/pi';
@@ -28,6 +42,8 @@ import { useI18n } from '@/src/i18n/i18n-provider';
 import { toast } from 'sonner';
 import { MAX_IMAGE_UPLOAD_BYTES } from '@/src/config/uploads';
 import { useAnchoredOverlayStyle } from '@/src/lib/anchored-overlay';
+import { MediaImage } from '@/src/components/ui/media-image';
+import { truncateUtf16Safely } from '@/src/lib/text-limits';
 
 const SCIENCE_SYMBOLS = [
   { value: '±', key: 'plusMinus' },
@@ -46,6 +62,94 @@ const SCIENCE_SYMBOLS = [
   { value: '²', key: 'squared' },
   { value: '³', key: 'cubed' },
 ] as const;
+
+const ExclusiveSubscript = SubscriptExtension.extend({
+  excludes: 'superscript',
+});
+
+const ExclusiveSuperscript = SuperscriptExtension.extend({
+  excludes: 'subscript',
+});
+
+const compactRichTextLimitKey = new PluginKey('compactRichTextLimit');
+
+function getCompactRichTextDocumentText(doc: ProseMirrorNode) {
+  return doc.textBetween(0, doc.content.size, '\n');
+}
+
+function insertPlainClipboardText(
+  view: EditorView,
+  text: string,
+  moveSelectionToEnd: boolean,
+) {
+  const { doc, schema, storedMarks } = view.state;
+  const transaction = view.state.tr;
+
+  if (moveSelectionToEnd) {
+    transaction.setSelection(TextSelection.atEnd(doc));
+  }
+
+  if (!text.includes('\n')) {
+    transaction.insertText(text).scrollIntoView();
+    view.dispatch(transaction);
+    return;
+  }
+
+  const paragraph = schema.nodes.paragraph;
+  if (!paragraph) {
+    transaction.insertText(text).scrollIntoView();
+    view.dispatch(transaction);
+    return;
+  }
+
+  const marks = storedMarks ?? transaction.selection.$from.marks();
+  const paragraphs = text.split('\n').map((line) =>
+    paragraph.create(
+      null,
+      line ? schema.text(line, marks) : undefined,
+    ),
+  );
+  transaction
+    .replaceSelection(new Slice(Fragment.fromArray(paragraphs), 1, 1))
+    .scrollIntoView();
+  view.dispatch(transaction);
+}
+
+const CompactRichTextLimit = Extension.create<{
+  limit: number;
+  onLimitReached?: () => void;
+}>({
+  name: 'compactRichTextLimit',
+  addOptions() {
+    return {
+      limit: Number.MAX_SAFE_INTEGER,
+      onLimitReached: undefined,
+    };
+  },
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: compactRichTextLimitKey,
+        filterTransaction: (transaction, state) => {
+          if (!transaction.docChanged) return true;
+
+          const currentLength = getCompactRichTextDocumentText(state.doc).length;
+          const nextLength = getCompactRichTextDocumentText(transaction.doc).length;
+
+          if (
+            nextLength <= this.options.limit ||
+            nextLength < currentLength
+          ) {
+            return true;
+          }
+
+          this.options.onLimitReached?.();
+          return false;
+        },
+      }),
+    ];
+  },
+});
 
 export type CompactRichTextStats = { words: number; characters: number };
 export type CompactRichTextImage = { src: string; alt: string };
@@ -73,6 +177,7 @@ interface CompactRichTextProps {
   ariaLabel: string;
   minHeightClass?: string;
   toolbarVisibility?: 'always' | 'focus' | 'none';
+  toolbarPreset?: 'full' | 'discussion';
   countsVisibility?: 'always' | 'focus' | 'none';
   onStatsChange?: (stats: CompactRichTextStats) => void;
   disabled?: boolean;
@@ -82,6 +187,12 @@ interface CompactRichTextProps {
   imageMaxImages?: number;
   attachments?: CompactRichTextImage[];
   onAttachmentsChange?: (images: CompactRichTextImage[]) => void;
+  maxCharacters?: number;
+  invalid?: boolean;
+  onLimitReached?: () => void;
+  rootClassName?: string;
+  frameClassName?: string;
+  maxHeightClass?: string;
 }
 
 export function CompactRichText({
@@ -91,6 +202,7 @@ export function CompactRichText({
   ariaLabel,
   minHeightClass = 'min-h-[96px]',
   toolbarVisibility = 'always',
+  toolbarPreset = 'full',
   countsVisibility = 'focus',
   onStatsChange,
   disabled = false,
@@ -100,13 +212,18 @@ export function CompactRichText({
   imageMaxImages = 4,
   attachments,
   onAttachmentsChange,
+  maxCharacters,
+  invalid = false,
+  onLimitReached,
+  rootClassName,
+  frameClassName,
+  maxHeightClass = 'max-h-[420px]',
 }: CompactRichTextProps) {
+  const onStatsChangeRef = useRef(onStatsChange);
+  onStatsChangeRef.current = onStatsChange;
   const { messages } = useI18n();
-  const toolbar = messages.editor.toolbar;
-  const statusCopy = messages.editor.status;
-  const toastCopy = messages.editor.toast;
-  // Reuse existing symbol labels (already localized for AZ/EN).
-  const symbolsCopy = messages.studio.practice.symbols;
+  const { toolbar, status: statusCopy, toast: toastCopy, symbols: symbolsCopy } =
+    messages.discussions.composer;
 
   const [showSymbols, setShowSymbols] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -118,6 +235,7 @@ export function CompactRichText({
   const symbolsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const symbolsMenuRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<ReturnType<typeof useEditor> | null>(null);
+  const onLimitReachedRef = useRef(onLimitReached);
   const [localAttachments, setLocalAttachments] = useState<CompactRichTextImage[]>([]);
   const symbolsMenuStyle = useAnchoredOverlayStyle({
     open: showSymbols,
@@ -133,6 +251,11 @@ export function CompactRichText({
   const showAttachmentTray = Boolean(imageUploadEndpoint) && imageMode === 'attachments';
   const effectiveAttachments = attachments ?? localAttachments;
   const showAttachmentTrayUi = showAttachmentTray && (effectiveAttachments.length > 0 || uploadingImages);
+  const isDiscussionToolbar = toolbarPreset === 'discussion';
+
+  useEffect(() => {
+    onLimitReachedRef.current = onLimitReached;
+  }, [onLimitReached]);
 
   const compressImageForUpload = useCallback(async (file: File): Promise<File> => {
     if (typeof window === 'undefined') return file;
@@ -344,15 +467,20 @@ export function CompactRichText({
         heading: false,
         blockquote: false,
         codeBlock: false,
-        bulletList: false,
+        bulletList: isDiscussionToolbar ? {} : false,
         orderedList: false,
-        listItem: false,
+        listItem: isDiscussionToolbar ? {} : false,
         horizontalRule: false,
+        underline: false,
       }),
       Placeholder.configure({ placeholder }),
       Underline,
-      SubscriptExtension,
-      SuperscriptExtension,
+      ExclusiveSubscript,
+      ExclusiveSuperscript,
+      CompactRichTextLimit.configure({
+        limit: maxCharacters ?? Number.MAX_SAFE_INTEGER,
+        onLimitReached: () => onLimitReachedRef.current?.(),
+      }),
       ...(imageUploadEndpoint && imageMode === 'inline'
         ? [
           ImageExtension.configure({
@@ -364,13 +492,83 @@ export function CompactRichText({
     ],
     content: value || '<p></p>',
     editorProps: {
-      handlePaste: (_view, event) => {
-        if (!imageUploadEndpoint || disabled) return false;
+      handlePaste: (view, event) => {
+        if (disabled) return false;
         const dt = (event as ClipboardEvent)?.clipboardData;
         const files = Array.from(dt?.files ?? []).filter((f) => /^image\//i.test(f.type));
-        if (!files.length) return false;
-        void insertUploadedImages(files);
-        return true;
+        if (files.length > 0 && imageUploadEndpoint) {
+          void insertUploadedImages(files);
+          return true;
+        }
+
+        const clipboardText = dt?.getData('text/plain') ?? '';
+        if (!clipboardText) return false;
+
+        const { doc, selection } = view.state;
+        const normalizedClipboardText = clipboardText.replace(/\r\n?/g, '\n');
+        const documentText = getCompactRichTextDocumentText(doc);
+        const documentStart = TextSelection.atStart(doc).from;
+        const documentEnd = TextSelection.atEnd(doc).to;
+        const selectsEntireDocument =
+          selection instanceof AllSelection ||
+          (selection.from <= documentStart && selection.to >= documentEnd);
+        const isSingleLinePaste = !normalizedClipboardText.includes('\n');
+        const isCaretAtDocumentEnd =
+          selection.empty && selection.to === documentEnd;
+        const appendAtDocumentEnd =
+          (selectsEntireDocument &&
+            normalizedClipboardText === documentText &&
+            isSingleLinePaste) ||
+          isCaretAtDocumentEnd;
+        const selectedTextLength = selection.empty
+          ? 0
+          : doc.textBetween(selection.from, selection.to, '\n').length;
+        const retainedLength =
+          documentText.length -
+          (appendAtDocumentEnd ? 0 : selectedTextLength);
+        const characterLimit =
+          maxCharacters ?? Number.MAX_SAFE_INTEGER;
+        const availableCharacters = Math.max(
+          0,
+          characterLimit - retainedLength,
+        );
+
+        if (normalizedClipboardText.length > availableCharacters) {
+          event.preventDefault();
+          const acceptedText = truncateUtf16Safely(
+            normalizedClipboardText,
+            availableCharacters,
+          );
+          if (acceptedText) {
+            insertPlainClipboardText(
+              view,
+              acceptedText,
+              appendAtDocumentEnd && selectsEntireDocument,
+            );
+          }
+          onLimitReachedRef.current?.();
+          return true;
+        }
+
+        // Copying the complete compact input and pasting it immediately should
+        // duplicate the text inline at the end. Keep subsequent single-line
+        // pastes inline too once the caret is at that end position.
+        if (
+          isSingleLinePaste &&
+          ((selectsEntireDocument &&
+            normalizedClipboardText === documentText) ||
+            isCaretAtDocumentEnd)
+        ) {
+          event.preventDefault();
+          insertPlainClipboardText(
+            view,
+            normalizedClipboardText,
+            selectsEntireDocument,
+          );
+          return true;
+        }
+
+        return false;
       },
       handleDrop: (_view, event) => {
         if (!imageUploadEndpoint || disabled) return false;
@@ -386,7 +584,8 @@ export function CompactRichText({
       },
       attributes: {
         class: cn(
-          'document-editor-content text-sm leading-relaxed focus:outline-none px-3 py-2',
+          'document-editor-content focus:outline-none',
+          fieldTextStyles,
           minHeightClass
         ),
         'aria-label': ariaLabel,
@@ -481,14 +680,16 @@ export function CompactRichText({
   }, [editor, imageMode, onChange]);
 
   const updateCounts = useCallback(() => {
-    const text = editor?.getText() ?? '';
+    const text = editor
+      ? getCompactRichTextDocumentText(editor.state.doc)
+      : '';
     const trimmed = text.trim();
     const words = trimmed ? trimmed.split(/\s+/).length : 0;
     const chars = text.length;
     setWordCount(words);
     setCharCount(chars);
-    onStatsChange?.({ words, characters: chars });
-  }, [editor, onStatsChange]);
+    onStatsChangeRef.current?.({ words, characters: chars });
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -529,6 +730,20 @@ export function CompactRichText({
     editor?.chain().focus().clearNodes().unsetAllMarks().run();
   }, [editor]);
 
+  const toggleSubscript = useCallback(() => {
+    if (!editor) return;
+    const chain = editor.chain().focus();
+    if (editor.isActive('superscript')) chain.unsetSuperscript();
+    chain.toggleSubscript().run();
+  }, [editor]);
+
+  const toggleSuperscript = useCallback(() => {
+    if (!editor) return;
+    const chain = editor.chain().focus();
+    if (editor.isActive('subscript')) chain.unsetSubscript();
+    chain.toggleSuperscript().run();
+  }, [editor]);
+
   const insertSymbol = useCallback(
     (symbol: string) => {
       editor?.chain().focus().insertContent(symbol).run();
@@ -540,7 +755,13 @@ export function CompactRichText({
   if (!editor) return null;
 
   return (
-    <div className={cn('space-y-1.5', showAttachmentTray && 'compact-rich-text-attachments')}>
+    <div
+      className={cn(
+        'space-y-1.5',
+        showAttachmentTray && 'compact-rich-text-attachments',
+        rootClassName,
+      )}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -555,7 +776,7 @@ export function CompactRichText({
       />
       {toolbarVisibility !== 'none' && showToolbar ? (
         <div
-          className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1"
+          className="flex flex-wrap items-center gap-1 rounded-md bg-muted/30 px-2 py-1"
           onPointerDown={(e) => {
             if (e.pointerType === 'mouse') e.preventDefault();
           }}
@@ -563,8 +784,7 @@ export function CompactRichText({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="h-7 w-7"
+            size="icon-xs"
             onClick={() => editor.chain().focus().toggleBold().run()}
             disabled={disabled}
             data-active={editor.isActive('bold')}
@@ -577,8 +797,7 @@ export function CompactRichText({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="h-7 w-7"
+            size="icon-xs"
             onClick={() => editor.chain().focus().toggleItalic().run()}
             disabled={disabled}
             data-active={editor.isActive('italic')}
@@ -588,81 +807,159 @@ export function CompactRichText({
           >
             <Italic className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => editor.chain().focus().toggleUnderline().run()}
-            disabled={disabled}
-            data-active={editor.isActive('underline')}
-            aria-label={toolbar.underline}
-            aria-pressed={editor.isActive('underline')}
-            title={withShortcut(toolbar.underline, `${modifierKey}U`)}
-          >
-            <UnderlineIcon className="h-3.5 w-3.5" />
-          </Button>
-          <span className="mx-1 h-4 w-px bg-border" />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => editor.chain().focus().toggleSubscript().run()}
-            disabled={disabled}
-            data-active={editor.isActive('subscript')}
-            aria-label={toolbar.subscript}
-            aria-pressed={editor.isActive('subscript')}
-            title={toolbar.subscript}
-          >
-            <SubscriptIcon className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => editor.chain().focus().toggleSuperscript().run()}
-            disabled={disabled}
-            data-active={editor.isActive('superscript')}
-            aria-label={toolbar.superscript}
-            aria-pressed={editor.isActive('superscript')}
-            title={toolbar.superscript}
-          >
-            <SuperscriptIcon className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => editor.chain().focus().toggleCode().run()}
-            disabled={disabled}
-            data-active={editor.isActive('code')}
-            aria-label={toolbar.inlineCode}
-            aria-pressed={editor.isActive('code')}
-            title={toolbar.inlineCode}
-          >
-            <Code className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={clearFormatting}
-            disabled={disabled}
-            aria-label={toolbar.clearFormatting}
-            title={toolbar.clearFormatting}
-          >
-            <Eraser className="h-3.5 w-3.5" />
-          </Button>
+          {isDiscussionToolbar ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => editor.chain().focus().toggleUnderline().run()}
+                disabled={disabled}
+                data-active={editor.isActive('underline')}
+                aria-label={toolbar.underline}
+                aria-pressed={editor.isActive('underline')}
+                title={withShortcut(toolbar.underline, `${modifierKey}U`)}
+              >
+                <UnderlineIcon className="h-3.5 w-3.5" />
+              </Button>
+              <span className="mx-1 h-4 w-px bg-border" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => editor.chain().focus().toggleBulletList().run()}
+                disabled={disabled}
+                data-active={editor.isActive('bulletList')}
+                aria-label={toolbar.bulletList}
+                aria-pressed={editor.isActive('bulletList')}
+                title={toolbar.bulletList}
+              >
+                <ListBullets className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => editor.chain().focus().toggleCode().run()}
+                disabled={disabled}
+                data-active={editor.isActive('code')}
+                aria-label={toolbar.inlineCode}
+                aria-pressed={editor.isActive('code')}
+                title={withShortcut(toolbar.inlineCode, `${modifierKey}E`)}
+              >
+                <Code className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={toggleSubscript}
+                disabled={disabled}
+                data-active={editor.isActive('subscript')}
+                aria-label={toolbar.subscript}
+                aria-pressed={editor.isActive('subscript')}
+                title={withShortcut(toolbar.subscript, `${modifierKey},`)}
+              >
+                <SubscriptIcon className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={toggleSuperscript}
+                disabled={disabled}
+                data-active={editor.isActive('superscript')}
+                aria-label={toolbar.superscript}
+                aria-pressed={editor.isActive('superscript')}
+                title={withShortcut(toolbar.superscript, `${modifierKey}.`)}
+              >
+                <SuperscriptIcon className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={clearFormatting}
+                disabled={disabled}
+                aria-label={toolbar.clearFormatting}
+                title={toolbar.clearFormatting}
+              >
+                <Eraser className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => editor.chain().focus().toggleUnderline().run()}
+                disabled={disabled}
+                data-active={editor.isActive('underline')}
+                aria-label={toolbar.underline}
+                aria-pressed={editor.isActive('underline')}
+                title={withShortcut(toolbar.underline, `${modifierKey}U`)}
+              >
+                <UnderlineIcon className="h-3.5 w-3.5" />
+              </Button>
+              <span className="mx-1 h-4 w-px bg-border" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={toggleSubscript}
+                disabled={disabled}
+                data-active={editor.isActive('subscript')}
+                aria-label={toolbar.subscript}
+                aria-pressed={editor.isActive('subscript')}
+                title={toolbar.subscript}
+              >
+                <SubscriptIcon className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={toggleSuperscript}
+                disabled={disabled}
+                data-active={editor.isActive('superscript')}
+                aria-label={toolbar.superscript}
+                aria-pressed={editor.isActive('superscript')}
+                title={toolbar.superscript}
+              >
+                <SuperscriptIcon className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => editor.chain().focus().toggleCode().run()}
+                disabled={disabled}
+                data-active={editor.isActive('code')}
+                aria-label={toolbar.inlineCode}
+                aria-pressed={editor.isActive('code')}
+                title={toolbar.inlineCode}
+              >
+                <Code className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={clearFormatting}
+                disabled={disabled}
+                aria-label={toolbar.clearFormatting}
+                title={toolbar.clearFormatting}
+              >
+                <Eraser className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
           {imagesEnabled ? (
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="h-7 w-7"
+              size="icon-xs"
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled || uploadingImages}
               aria-label={toolbar.insertImage}
@@ -675,47 +972,48 @@ export function CompactRichText({
               )}
             </Button>
           ) : null}
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
-            <Button
-              ref={symbolsTriggerRef}
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowSymbols((s) => !s);
-              }}
-              disabled={disabled}
-              aria-label={toolbar.insertSymbol}
-              aria-haspopup="menu"
-              aria-expanded={showSymbols}
-              title={toolbar.insertSymbol}
-            >
-              <Sigma className="h-3.5 w-3.5" />
-            </Button>
-            {showSymbols ? (
-              <div
-                ref={symbolsMenuRef}
-                style={symbolsMenuStyle}
-                className="grid min-w-[220px] grid-cols-5 gap-2 overflow-auto rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-lg"
+          {!isDiscussionToolbar ? (
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              <Button
+                ref={symbolsTriggerRef}
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowSymbols((s) => !s);
+                }}
+                disabled={disabled}
+                aria-label={toolbar.insertSymbol}
+                aria-haspopup="menu"
+                aria-expanded={showSymbols}
+                title={toolbar.insertSymbol}
               >
-                {SCIENCE_SYMBOLS.map((symbol) => (
-                  <button
-                    key={symbol.value}
-                    type="button"
-                    className="flex h-8 w-8 touch-manipulation items-center justify-center rounded-sm border border-border text-base leading-none transition-colors hover:bg-muted"
-                    onClick={() => insertSymbol(symbol.value)}
-                    aria-label={symbolsCopy[symbol.key]}
-                    title={symbolsCopy[symbol.key]}
-                    disabled={disabled}
-                  >
-                    {symbol.value}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
+                <Sigma className="h-3.5 w-3.5" />
+              </Button>
+              {showSymbols ? (
+                <div
+                  ref={symbolsMenuRef}
+                  style={symbolsMenuStyle}
+                  className="grid min-w-[220px] grid-cols-5 gap-2 overflow-auto rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-float"
+                >
+                  {SCIENCE_SYMBOLS.map((symbol) => (
+                    <button
+                      key={symbol.value}
+                      type="button"
+                      className="flex h-8 w-8 touch-manipulation items-center justify-center rounded-sm border border-border text-base leading-none transition-colors hover:bg-muted"
+                      onClick={() => insertSymbol(symbol.value)}
+                      aria-label={symbolsCopy[symbol.key]}
+                      title={symbolsCopy[symbol.key]}
+                      disabled={disabled}
+                    >
+                      {symbol.value}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -738,17 +1036,19 @@ export function CompactRichText({
               key={img.src}
               className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted/30"
             >
-              <img
+              <MediaImage
                 src={img.src}
                 alt={img.alt || 'image'}
+                width={64}
+                height={64}
+                sizes="64px"
                 className="h-full w-full object-cover"
                 loading="lazy"
-                decoding="async"
               />
               <button
                 type="button"
                 onClick={() => setNextAttachments(effectiveAttachments.filter((item) => item.src !== img.src))}
-                className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm transition-colors hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-destructive/30"
+                className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm transition-colors hover:bg-destructive/90 focus:outline-none focus:ring-1 focus:ring-destructive/50 focus:ring-offset-0"
                 aria-label="Remove image"
                 disabled={disabled || uploadingImages}
               >
@@ -766,12 +1066,14 @@ export function CompactRichText({
       ) : null}
 
       <div
+        data-ui-control="rich-text"
+        data-disabled={disabled || undefined}
+        data-invalid={invalid || undefined}
         className={cn(
-          'max-h-[420px] overflow-y-auto rounded-md border border-border bg-background transition-shadow',
-          disabled && 'opacity-80',
-          isFocused
-            ? 'border-primary/40 ring-2 ring-primary/15'
-            : 'focus-within:ring-2 focus-within:ring-primary/10'
+          fieldControlFrameStyles,
+          maxHeightClass,
+          'min-w-0 max-w-full overflow-x-hidden overflow-y-auto',
+          frameClassName,
         )}
       >
         <EditorContent editor={editor} />

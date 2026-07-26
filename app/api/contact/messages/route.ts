@@ -16,6 +16,7 @@ import {
   getTrustedClientIpFromHeaders,
 } from '@/src/security/rateLimiter';
 import { contactMessageSchema } from '@/src/modules/contact/schemas/contact-message';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 export async function POST(request: Request) {
   try {
@@ -30,8 +31,14 @@ export async function POST(request: Request) {
       return NextResponse.json(body, { status, headers });
     }
 
-    const json = await request.json();
-    const parsed = contactMessageSchema.safeParse(json);
+    const bodyResult = await readJsonBody(request, JSON_BODY_LIMITS.SMALL);
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { error: bodyResult.error },
+        { status: bodyResult.status },
+      );
+    }
+    const parsed = contactMessageSchema.safeParse(bodyResult.value);
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }

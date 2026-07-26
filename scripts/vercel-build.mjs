@@ -62,7 +62,7 @@ async function main() {
         console.warn(
           `[vercel-build] prisma migrate deploy failed; retrying in ${waitMs}ms (attempt ${attempt}/${maxAttempts})...`
         );
-        // eslint-disable-next-line no-await-in-loop
+
         await delay(waitMs);
       }
     }

@@ -7,19 +7,7 @@ export default async function NotFound() {
   const { messages } = await getI18n();
   const copy = messages.notFound;
   return (
-    <div className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background px-4 py-16 text-foreground sm:px-6 lg:px-8">
-      <div
-        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-background via-background to-muted/40"
-        aria-hidden="true"
-      />
-      <div
-        className="pointer-events-none absolute -top-24 right-6 h-56 w-56 rounded-full bg-primary/10 blur-3xl"
-        aria-hidden="true"
-      />
-      <div
-        className="pointer-events-none absolute -bottom-24 left-6 h-56 w-56 rounded-full bg-muted/60 blur-3xl"
-        aria-hidden="true"
-      />
+    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-16 text-foreground sm:px-6 lg:px-8">
 
       <div className="relative z-10 mx-auto flex w-full max-w-3xl flex-col items-center text-center">
         <div className="inline-flex items-center justify-center rounded-full border border-border/70 bg-background/70 px-3 py-1 text-[11px] font-medium uppercase text-muted-foreground">

@@ -4,12 +4,12 @@ import { isTrustedWriteRequest } from '@/src/security/write-request';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-/**
- * Reject cross-origin browser writes before they reach API handlers. Route-level
- * authentication and authorization remain authoritative.
- */
 export function proxy(request: NextRequest) {
-  if (!UNSAFE_METHODS.has(request.method)) return NextResponse.next();
+  const { pathname } = request.nextUrl;
+
+  if (!pathname.startsWith('/api/') || !UNSAFE_METHODS.has(request.method)) {
+    return NextResponse.next();
+  }
 
   let trustedOrigin: string;
   try {
@@ -23,7 +23,7 @@ export function proxy(request: NextRequest) {
 
   if (
     !isTrustedWriteRequest(
-      { headers: request.headers, pathname: request.nextUrl.pathname },
+      { headers: request.headers, pathname },
       trustedOrigin,
       process.env.CRON_SECRET,
     )
@@ -44,5 +44,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: '/api/:path*',
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

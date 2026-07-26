@@ -7,11 +7,14 @@ export type AppUser = {
   lastName: string | null;
   avatarVariant: string;
   email: string;
-  credits: number | null;
   role: string;
   status: string;
   emailVerifiedAt: Date | null;
+  guidelinesAcceptedAt: Date | null;
+  guidelinesVersion: string | null;
+  accountOwnerType: string | null;
   tutorialCompletedAt: Date | null;
+  tutorialSkippedAt: Date | null;
   suspensionUntil?: Date | null;
   suspensionReason?: string | null;
   bannedAt?: Date | null;
@@ -27,11 +30,14 @@ export const getAppUser = cache(async (userId: string): Promise<AppUser | null> 
       lastName: true,
       avatarVariant: true,
       email: true,
-      credits: true,
       role: true,
       status: true,
       emailVerifiedAt: true,
+      guidelinesAcceptedAt: true,
+      guidelinesVersion: true,
+      accountOwnerType: true,
       tutorialCompletedAt: true,
+      tutorialSkippedAt: true,
       suspensionUntil: true,
       suspensionReason: true,
       bannedAt: true,

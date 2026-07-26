@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { createContext, useContext, useMemo } from 'react';
+import { hasAcceptedCurrentGuidelines } from '@/src/modules/onboarding/account-setup-state';
 
 type CurrentUser = {
   id: string;
@@ -11,6 +12,8 @@ type CurrentUser = {
   avatarVariant?: string | null;
   role?: string | null;
   emailVerifiedAt?: string | null;
+  guidelinesAcceptedAt?: string | null;
+  guidelinesVersion?: string | null;
   status?: string | null;
   suspensionUntil?: string | null;
   bannedAt?: string | null;
@@ -19,8 +22,14 @@ type CurrentUser = {
 type CurrentUserContextValue = {
   user: CurrentUser;
   requiresEmailVerification: boolean;
+  requiresGuidelinesAcceptance: boolean;
   canWrite: boolean;
-  writeRestriction: null | 'emailNotVerified' | 'accountSuspended' | 'accountBanned';
+  writeRestriction:
+    | null
+    | 'emailNotVerified'
+    | 'guidelinesRequired'
+    | 'accountSuspended'
+    | 'accountBanned';
 };
 
 const CurrentUserContext = createContext<CurrentUserContextValue | null>(null);
@@ -34,6 +43,8 @@ export function CurrentUserProvider({
 }) {
   const value = useMemo<CurrentUserContextValue>(() => {
     const requiresEmailVerification = !user.emailVerifiedAt;
+    const requiresGuidelinesAcceptance =
+      !requiresEmailVerification && !hasAcceptedCurrentGuidelines(user);
     const status = user.status ?? null;
     const writeRestriction: CurrentUserContextValue['writeRestriction'] =
       status === 'BANNED'
@@ -42,10 +53,13 @@ export function CurrentUserProvider({
           ? 'accountSuspended'
           : requiresEmailVerification
             ? 'emailNotVerified'
+            : requiresGuidelinesAcceptance
+              ? 'guidelinesRequired'
             : null;
     return {
       user,
       requiresEmailVerification,
+      requiresGuidelinesAcceptance,
       canWrite: writeRestriction === null,
       writeRestriction,
     };

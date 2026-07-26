@@ -10,6 +10,7 @@ import { RATE_LIMITS } from '@/src/config/constants';
 import { getPrivateNoStoreHeaders } from '@/src/lib/http-cache';
 import { hashEmailVerificationToken, isEmailVerificationToken } from '@/src/modules/auth/utils/email-verification';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 export async function POST(request: Request) {
   try {
@@ -20,7 +21,17 @@ export async function POST(request: Request) {
       return NextResponse.json(body, { status, headers: { ...headers, ...getPrivateNoStoreHeaders() } });
     }
 
-    const body = (await request.json().catch(() => ({}))) as { token?: unknown };
+    const bodyResult = await readJsonBody<{ token?: unknown }>(
+      request,
+      JSON_BODY_LIMITS.SMALL,
+    );
+    if (!bodyResult.ok) {
+      return NextResponse.json(
+        { success: false, error: bodyResult.error },
+        { status: bodyResult.status, headers: getPrivateNoStoreHeaders() },
+      );
+    }
+    const body = bodyResult.value;
     const token = typeof body.token === 'string' ? body.token.trim() : '';
     if (!isEmailVerificationToken(token)) {
       return NextResponse.json(

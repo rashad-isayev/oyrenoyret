@@ -1,6 +1,7 @@
 export type WriteRestriction =
   | null
   | 'emailNotVerified'
+  | 'guidelinesRequired'
   | 'accountSuspended'
   | 'accountBanned';
 
@@ -15,8 +16,9 @@ export function getWriteRestrictionMessage(
       return 'Your account is banned and cannot perform this action.';
     case 'emailNotVerified':
       return fallbackEmailNotVerified;
+    case 'guidelinesRequired':
+      return 'Please accept the community rules to participate.';
     default:
       return 'You cannot perform this action right now.';
   }
 }
-

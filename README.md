@@ -196,7 +196,8 @@ This project uploads user images directly to Cloudflare R2 using short-lived pre
 
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PRIVATE_BUCKET`
 
-The bucket must remain private. Upload responses expose only same-origin proxy URLs; student sprint files additionally require ownership or an admin/teacher role to read.
+The bucket must remain private. Upload responses expose only authenticated
+same-origin proxy URLs.
 
 **Bucket CORS (required for browser uploads)**
 
@@ -216,14 +217,17 @@ In R2 bucket settings, add a CORS rule that allows `PUT` from your app origin(s)
 
 Optional:
 - `R2_PRESIGN_TTL_SECONDS` (default `300`, min `30`, max `900`)
-- `R2_DISCUSSIONS_PREFIX`, `R2_ANNOUNCEMENTS_PREFIX`, `R2_SPRINT_SUBMISSIONS_PREFIX`
+- `R2_DISCUSSIONS_PREFIX`
 
-Apply object lifecycle rules to remove abandoned presigned uploads. The application rejects objects whose actual size or signed metadata does not match the upload request, but lifecycle cleanup is still required to reclaim unusable objects.
+Apply object lifecycle rules to remove abandoned presigned uploads. The upload
+signature binds the declared content length, and the authenticated proxy checks
+the stored size, metadata, extension, and image signature before serving an
+object. Lifecycle cleanup is still required to reclaim abandoned objects.
 
 ## Security checks
 
 - `npm run security:scan` checks tracked and unignored files for common credential formats and forbidden credential files.
-- `npm run security:audit` fails on high-severity production dependency advisories.
+- `npm run security:audit` fails on any known production or development dependency advisory.
 - `npm run env:check` validates production secrets, trusted origins, private storage, distributed rate limiting, and TLS settings without printing values.
 - `npm run typecheck`, `npm run lint`, and `npm run build` provide static and build-time verification.
 

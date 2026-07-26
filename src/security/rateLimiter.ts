@@ -137,11 +137,6 @@ export function buildRateLimitResponse(result: RateLimitResult) {
   };
 }
 
-export function resetRateLimitStoreForTests() {
-  rateLimitStore.clear();
-  lastCleanupAt = 0;
-}
-
 /**
  * Checks if a request should be rate limited
  * @param identifier Unique identifier (IP, user ID, etc.)

@@ -12,11 +12,16 @@ import { getCurrentSession } from '@/src/modules/auth/utils/session';
 import { RATE_LIMITS } from '@/src/config/constants';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
 import {
+  detectImageMimeFromMagicBytes,
   inferContentTypeFromKey,
   inferFilenameFromKey,
   sanitizeContentDispositionFilename,
 } from '@/src/lib/mime';
-import { MAX_IMAGE_UPLOAD_BYTES } from '@/src/config/uploads';
+import {
+  AUTHENTICATED_MEDIA_CACHE_CONTROL,
+  MAX_IMAGE_UPLOAD_BYTES,
+} from '@/src/config/uploads';
+import { requirePlatformContentAccess } from '@/src/modules/auth/utils/write-access';
 
 export const runtime = 'nodejs';
 
@@ -24,9 +29,19 @@ export async function GET(request: Request) {
   try {
     const userId = await getCurrentSession();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const contentAccess = await requirePlatformContentAccess(userId);
+    if (!contentAccess.ok) {
+      return NextResponse.json(
+        {
+          error: 'error' in contentAccess ? contentAccess.error : 'Unauthorized',
+          errorKey: contentAccess.errorKey,
+        },
+        { status: contentAccess.status },
+      );
+    }
 
     const identifier = getRateLimitIdentifier(request, userId);
-    const rateLimit = await checkRateLimit(`uploads:discussions:file:${identifier}`, RATE_LIMITS.GENERAL);
+    const rateLimit = await checkRateLimit(`uploads:discussions:file:${identifier}`, RATE_LIMITS.MEDIA_READ);
     if (!rateLimit.allowed) {
       const { status, body, headers } = buildRateLimitResponse(rateLimit);
       return NextResponse.json(body, { status, headers });
@@ -68,21 +83,33 @@ export async function GET(request: Request) {
     }
 
     const body = data.Body as unknown;
-    const stream =
-      body && typeof (body as { transformToWebStream?: unknown }).transformToWebStream === 'function'
-        ? (body as { transformToWebStream: () => ReadableStream }).transformToWebStream()
-        : body && typeof body === 'object' && typeof (body as any).pipe === 'function'
-          ? (await import('node:stream')).Readable.toWeb(body as any)
-          : null;
+    const toByteArray =
+      body &&
+      typeof body === 'object' &&
+      typeof (body as { transformToByteArray?: unknown }).transformToByteArray === 'function'
+        ? (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray
+        : null;
+    if (!toByteArray) {
+      return NextResponse.json({ error: 'Unable to read file' }, { status: 500 });
+    }
 
-    if (!stream) return NextResponse.json({ error: 'Unable to read file' }, { status: 500 });
+    const bytes = await toByteArray.call(body);
+    if (
+      bytes.byteLength !== contentLength ||
+      detectImageMimeFromMagicBytes(bytes) !== contentType
+    ) {
+      return NextResponse.json({ error: 'Invalid stored object' }, { status: 415 });
+    }
 
     const filename =
       sanitizeContentDispositionFilename(inferFilenameFromKey(keyRaw) ?? 'file') || 'file';
-    return new Response(stream as any, {
+    const responseBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(responseBuffer).set(bytes);
+    return new Response(responseBuffer, {
       headers: {
         'Content-Type': contentType,
-        'Cache-Control': 'private, max-age=300',
+        'Content-Length': String(bytes.byteLength),
+        'Cache-Control': AUTHENTICATED_MEDIA_CACHE_CONTROL,
         'Content-Disposition': `inline; filename="${filename}"`,
         'X-Content-Type-Options': 'nosniff',
         Vary: 'Cookie',

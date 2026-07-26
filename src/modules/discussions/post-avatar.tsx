@@ -81,7 +81,7 @@ export function PostAvatar({
         colorClass,
         sizeClass,
         isInteractive
-          ? 'cursor-pointer ring-1 ring-black/5 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2'
+          ? 'cursor-pointer ring-1 ring-black/5 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/75 focus-visible:ring-offset-0'
           : null,
         className
       )}

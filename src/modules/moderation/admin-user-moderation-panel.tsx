@@ -15,8 +15,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { extractErrorMessage, formatErrorToast } from '@/src/lib/error-toast';
 import { useI18n } from '@/src/i18n/i18n-provider';
+import { useSettings } from '@/src/components/settings/settings-provider';
 
 type UserModerationState = {
   id: string;
@@ -37,6 +39,7 @@ export function AdminUserModerationPanel({
   onUpdated?: (next: UserModerationState) => void;
 }) {
   const { messages } = useI18n();
+  const { timeZone } = useSettings();
   const copy = messages.admin?.moderationPanel?.toasts;
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<ActionKind>('SUSPEND');
@@ -60,7 +63,7 @@ export function AdminUserModerationPanel({
   const description = useMemo(() => {
     switch (action) {
       case 'SUSPEND':
-        return 'Suspended accounts can browse but cannot create materials, post, or join events. Requires a reason.';
+        return 'Suspended accounts can browse but cannot create discussions or post messages. Requires a reason.';
       case 'UNSUSPEND':
         return 'Lift the suspension early. Requires a reason.';
       case 'BAN':
@@ -123,7 +126,11 @@ export function AdminUserModerationPanel({
 
   const statusLine =
     user.status === 'SUSPENDED'
-      ? `Suspended until ${user.suspensionUntil ? new Date(user.suspensionUntil).toLocaleString() : '—'}`
+      ? `Suspended until ${
+          user.suspensionUntil
+            ? new Date(user.suspensionUntil).toLocaleString(undefined, { timeZone })
+            : '—'
+        }`
       : user.status === 'BANNED'
         ? 'Banned'
         : user.status;
@@ -225,13 +232,13 @@ export function AdminUserModerationPanel({
 
             <div className="space-y-1">
               <Label htmlFor="moderation-reason">Reason</Label>
-              <textarea
+              <Textarea
                 id="moderation-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 maxLength={2000}
                 rows={4}
-                className="w-full max-h-[420px] overflow-y-auto rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                className="max-h-[420px] overflow-y-auto"
                 placeholder="Required. This will be shown to the user."
               />
             </div>

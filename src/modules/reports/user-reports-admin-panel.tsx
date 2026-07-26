@@ -7,6 +7,9 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { extractErrorMessage, formatErrorToast } from '@/src/lib/error-toast';
 import { useI18n } from '@/src/i18n/i18n-provider';
+import { useSettings } from '@/src/components/settings/settings-provider';
+import { PiWarningCircle as WarningCircle } from 'react-icons/pi';
+import { EmptyState } from '@/src/components/ui/empty-state';
 
 type UserLite = {
   id: string;
@@ -33,6 +36,7 @@ type UserReportRow = {
 
 export function UserReportsAdminPanel() {
   const { messages } = useI18n();
+  const { timeZone } = useSettings();
   const panelCopy = messages.admin.reportsPanel;
   const reportCopy = messages.userReports;
 
@@ -123,10 +127,11 @@ export function UserReportsAdminPanel() {
           <Skeleton className="h-4 w-56" />
         </div>
       ) : rows.length === 0 ? (
-        <div className="card-frame border-dashed bg-muted/20 px-5 py-10 text-center">
-          <p className="text-sm font-medium text-muted-foreground">{panelCopy.emptyTitle}</p>
-          <p className="mt-1 text-xs text-muted-foreground/70">{panelCopy.emptySubtitle}</p>
-        </div>
+        <EmptyState
+          title={panelCopy.emptyTitle}
+          description={panelCopy.emptySubtitle}
+          icon={<WarningCircle className="h-5 w-5" aria-hidden="true" />}
+        />
       ) : (
         <div className="card-frame bg-card">
           <div className="flex items-center justify-between border-b border-border/70 px-5 py-3">
@@ -174,7 +179,7 @@ export function UserReportsAdminPanel() {
                   return (
                     <tr key={row.id} className="border-t border-border/70 align-top">
                       <td className="py-3 pl-5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(row.createdAt).toLocaleString()}
+                        {new Date(row.createdAt).toLocaleString(undefined, { timeZone })}
                       </td>
                       <td className="py-3 pr-4 text-xs text-muted-foreground">
                         <div className="font-medium text-foreground">{resolvedTargetLabel}</div>
@@ -183,7 +188,7 @@ export function UserReportsAdminPanel() {
                             asChild
                             size="sm"
                             variant="ghost"
-                            className="mt-1 h-7 justify-start px-2 font-mono text-[11px] text-muted-foreground/80"
+                            className="mt-1 justify-start font-mono text-[11px] text-muted-foreground/80"
                           >
                             <a href={row.contextUrl}>
                               {panelCopy.openContext}

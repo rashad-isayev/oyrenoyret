@@ -2,22 +2,28 @@
 
 import * as React from 'react';
 import { cn } from '@/src/lib/utils';
+import {
+  fieldControlStyles,
+  fieldSizeStyles,
+} from '@/components/ui/control-styles';
 
-export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
+export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  fieldSize?: keyof typeof fieldSizeStyles;
+};
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, fieldSize = 'default', ...props }, ref) => {
     return (
-        <input
-          type={type}
-          className={cn(
-          'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
-          'placeholder:text-muted-foreground/80',
-          'transition-colors duration-150',
-          'focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary/40',
-          'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-input',
+      <input
+        type={type}
+        data-ui-control="input"
+        data-field-size={fieldSize}
+        className={cn(
+          fieldControlStyles,
+          fieldSizeStyles[fieldSize],
+          type === 'number' && 'input-number',
           'file:border-0 file:bg-transparent file:text-sm file:font-medium',
-          className
+          className,
         )}
         ref={ref}
         {...props}

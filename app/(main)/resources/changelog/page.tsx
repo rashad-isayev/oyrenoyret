@@ -1,5 +1,6 @@
 import { getI18n } from '@/src/i18n/server';
 import { BrandText } from '@/src/components/ui/brand-text';
+import { PublicPageShell } from '@/src/components/ui/public-page-shell';
 
 export const metadata = {
   title: 'Changelog',
@@ -66,7 +67,7 @@ export default async function ChangelogPage() {
     entry.sections.some((section) => section.items.length > 0),
   );
   return (
-    <main className="relative mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 pb-24 pt-20 sm:px-6 lg:px-8">
+    <PublicPageShell className="relative">
       <div className="space-y-4">
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           <BrandText>{copy.title}</BrandText>
@@ -91,7 +92,7 @@ export default async function ChangelogPage() {
                   </p>
                 </div>
               </div>
-              <div className="rounded-2xl border border-border/60 bg-card/90 p-6">
+              <div className="rounded-lg border border-border bg-card p-5">
                 <div className="space-y-6">
                   {entry.sections.map((section, sectionIndex) => (
                     <div key={`${entry.date}-${sectionIndex}`} className="space-y-3">
@@ -118,10 +119,10 @@ export default async function ChangelogPage() {
           ))}
         </div>
       ) : (
-        <div className="mt-10 rounded-2xl border border-border/60 bg-muted/30 p-6 text-sm text-muted-foreground whitespace-pre-line leading-6">
+        <div className="mt-10 rounded-lg bg-secondary p-5 text-sm text-muted-foreground whitespace-pre-line leading-6">
           <BrandText>{copy.notice}</BrandText>
         </div>
       )}
-    </main>
+    </PublicPageShell>
   );
 }

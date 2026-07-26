@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import createNextIntlPlugin from 'next-intl/plugin';
 
 /**
  * Next.js Configuration
@@ -17,6 +18,9 @@ const nextConfig: NextConfig = {
   experimental: {
     // Reduces client bundle size for icon-heavy pages.
     optimizePackageImports: ['react-icons'],
+    serverActions: {
+      bodySizeLimit: '1mb',
+    },
   },
   // Explicitly declare Turbopack config to avoid Next 16 dev warnings/errors when a `webpack` config exists.
   turbopack: {},
@@ -27,6 +31,25 @@ const nextConfig: NextConfig = {
       config.cache = false;
     }
     return config;
+  },
+  async redirects() {
+    return [
+      {
+        source: '/getting-started',
+        destination: '/welcome',
+        permanent: true,
+      },
+      {
+        source: '/getting-started/signup',
+        destination: '/welcome',
+        permanent: true,
+      },
+      {
+        source: '/getting-started/account',
+        destination: '/welcome/signup',
+        permanent: true,
+      },
+    ];
   },
   // Security headers
   async headers() {
@@ -149,4 +172,6 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
+
+export default withNextIntl(nextConfig);

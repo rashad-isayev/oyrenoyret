@@ -5,6 +5,7 @@
  * Default: resets STUDENT users only.
  * Flags:
  *  --all   Reset all user roles.
+ *  --allow-remote   Explicitly allow changing a non-local database.
  *
  * Uses DATABASE_URL from the environment.
  */
@@ -13,6 +14,14 @@ import './load-env.mjs';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
+import { assertExplicitRemoteDatabaseAccess } from './database-target-safety.mjs';
+
+const allowRemote = process.argv.includes('--allow-remote');
+assertExplicitRemoteDatabaseAccess({
+  databaseUrl: process.env.DATABASE_URL,
+  allowRemote,
+  operation: 'reset email verification',
+});
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -42,7 +51,7 @@ async function main() {
     data: { emailVerifiedAt: null },
   });
 
-  // eslint-disable-next-line no-console
+
   console.log(
     `Reset email verification for ${result.count} user(s) (${resetAll ? 'ALL roles' : 'STUDENT only'}).`,
   );
@@ -50,7 +59,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    // eslint-disable-next-line no-console
+
     console.error('Reset failed:', error?.message ?? error);
     process.exitCode = 1;
   })

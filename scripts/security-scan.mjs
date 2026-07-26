@@ -190,16 +190,16 @@ function main() {
 
   if (findings.length > 0) {
     // Do not print matched values; only locations and pattern names.
-    // eslint-disable-next-line no-console
+
     console.error('Secret scan failed. Review and remove/rotate secrets:\n');
     for (const f of findings) {
-      // eslint-disable-next-line no-console
+
       console.error(`- ${f.file}:${f.line} — ${f.reason}`);
     }
     process.exit(1);
   }
 
-  // eslint-disable-next-line no-console
+
   console.log('Secret scan passed.');
 }
 

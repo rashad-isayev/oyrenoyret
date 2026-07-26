@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type AriaRole, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -15,13 +15,14 @@ import {
 import { Button, type ButtonVariant } from '@/components/ui/button';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/src/i18n/i18n-provider';
 import { useCurrentUser } from '@/src/modules/auth/components/current-user-context';
 import { extractErrorMessage, formatErrorToast } from '@/src/lib/error-toast';
 import { getWriteRestrictionMessage } from '@/src/lib/write-restriction';
 
 type ReportReason = 'SPAM' | 'HARASSMENT' | 'CHEATING' | 'IMPERSONATION' | 'OTHER';
-type ReportTargetType = 'PROFILE' | 'DISCUSSION' | 'DISCUSSION_REPLY' | 'MATERIAL' | 'MATERIAL_COMMENT';
+type ReportTargetType = 'PROFILE' | 'DISCUSSION' | 'DISCUSSION_REPLY';
 
 export function ReportButton(props: {
   reportedUserId: string;
@@ -32,6 +33,9 @@ export function ReportButton(props: {
   contextUrl?: string | null;
   buttonVariant?: ButtonVariant;
   buttonClassName?: string;
+  buttonRole?: AriaRole;
+  buttonIcon?: ReactNode;
+  onBeforeOpen?: () => void;
 }) {
   const { messages } = useI18n();
   const copy = messages.userReports;
@@ -39,6 +43,10 @@ export function ReportButton(props: {
   const isSelf = user.id === props.reportedUserId;
   const target = props.reportedUserPublicId ?? props.reportedUserId;
   const targetType: ReportTargetType = props.targetType ?? 'PROFILE';
+  const buttonLabel =
+    targetType === 'PROFILE'
+      ? copy.button
+      : copy.targetActions[targetType];
 
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState<ReportReason>('SPAM');
@@ -111,14 +119,17 @@ export function ReportButton(props: {
       <Button
         size="sm"
         variant={props.buttonVariant ?? 'danger'}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          props.onBeforeOpen?.();
+          setOpen(true);
+        }}
         disabled={isSelf}
         className={props.buttonClassName}
-        title={isSelf ? copy.cannotReportSelf : copy.button}
+        role={props.buttonRole}
+        title={isSelf ? copy.cannotReportSelf : buttonLabel}
       >
-        {targetType === 'PROFILE'
-          ? copy.button
-          : copy.targets?.[targetType] ? copy.buttonTarget.replace('{{target}}', copy.targets[targetType]) : copy.button}
+        {props.buttonIcon}
+        {buttonLabel}
       </Button>
 
       <AlertDialog open={open} onOpenChange={setOpen}>
@@ -151,9 +162,9 @@ export function ReportButton(props: {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="report-details">{copy.detailsLabel}</Label>
-              <textarea
+              <Textarea
                 id="report-details"
-                className="min-h-[110px] max-h-[220px] resize-y rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/15"
+                className="min-h-[110px] max-h-[220px]"
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
                 placeholder={copy.detailsPlaceholder}

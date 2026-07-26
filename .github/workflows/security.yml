@@ -3,7 +3,10 @@ name: Security checks
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+      - development
+      - 'codex/**'
   schedule:
     - cron: '17 4 * * 1'
 
@@ -43,7 +46,7 @@ jobs:
       - name: Scan current files and Git history for secrets
         run: npm run security:scan:history
 
-      - name: Audit production dependencies
+      - name: Audit all dependencies
         run: npm run security:audit
 
       - name: Type-check

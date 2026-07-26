@@ -4,6 +4,7 @@ import { RATE_LIMITS } from '@/src/config/constants';
 import { getPrivateNoStoreHeaders } from '@/src/lib/http-cache';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
 import { getOnlineCount, touchOnlineUser } from '@/src/lib/online-users';
+import { requirePlatformContentAccess } from '@/src/modules/auth/utils/write-access';
 
 export async function GET(request: Request) {
   const identifier = getRateLimitIdentifier(request);
@@ -26,6 +27,16 @@ export async function POST(request: Request) {
   const userId = await getCurrentSession();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const contentAccess = await requirePlatformContentAccess(userId);
+  if (!contentAccess.ok) {
+    return NextResponse.json(
+      {
+        error: 'error' in contentAccess ? contentAccess.error : 'Unauthorized',
+        errorKey: contentAccess.errorKey,
+      },
+      { status: contentAccess.status, headers: getPrivateNoStoreHeaders() },
+    );
   }
 
   const identifier = getRateLimitIdentifier(request, userId);

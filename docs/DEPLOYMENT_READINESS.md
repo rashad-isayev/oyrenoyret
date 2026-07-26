@@ -7,7 +7,7 @@ This runbook is the release gate for Oyrenoyret. It is hosting-provider agnostic
 Run the complete code and supply-chain check from a clean checkout:
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run db:generate
 npm run readiness:check
 ```
@@ -20,18 +20,14 @@ For a running staging instance, also run:
 BASE_URL=https://staging.example.com npm run security:smoke
 ```
 
-The smoke test verifies the health route, security headers, cross-origin write rejection, and rejection of unauthenticated origin-less cron calls. Authenticated role and ownership tests still require dedicated staging accounts.
+The smoke test verifies the health route, security headers, cross-origin write rejection, rejection of unauthenticated origin-less cron calls, private discussion reads, and oversized JSON rejection. Authenticated role, ban-state, and ownership tests still require dedicated staging accounts.
 
 ## Database safety gate
 
-The preflight is read-only and refuses remote databases unless the operator explicitly opts in:
-
-```bash
-npm run db:security-preflight
-node scripts/db-security-preflight.mjs --allow-remote
-```
-
-The second form must be used only after confirming the target, taking a verified backup, and obtaining production change approval. It checks the uniqueness assumptions enforced by `20260722000000_security_hardening` without printing user or transaction identifiers.
+Database-changing operator scripts refuse non-local targets unless the operator
+passes `--allow-remote`. Treat that flag as an approval boundary: confirm the
+target, take a verified backup, and obtain production change approval first.
+Admin creation or promotion also revokes the account's existing sessions.
 
 Create a local backup without putting the database password on the command line:
 
@@ -55,7 +51,7 @@ BACKUP_PATH=/private/tmp/your-backup.dump npm run db:verify-backup
 
 The verifier creates a randomly named local database, restores the archive, checks the restored schema, and removes only that disposable database.
 
-After a successful preflight and restore test:
+After a successful restore test:
 
 ```bash
 npx prisma migrate status
@@ -102,7 +98,7 @@ The repository contains CODEOWNERS, a pull-request security checklist, weekly De
 1. Freeze database-changing deployments and announce the sign-out window.
 2. Record the exact Git commit and application artifact.
 3. Take a fresh backup and successfully restore it into a disposable database.
-4. Run the remote database security preflight and require zero conflicts.
+4. Confirm migration status and the exact remote database target.
 5. Enable maintenance mode or stop application writes.
 6. Run `npx prisma migrate deploy` with the approved migration credential.
 7. Deploy the exact verified application artifact.
@@ -129,7 +125,6 @@ The owner must supply or approve the following because they involve external acc
 ## Deferred hardening backlog
 
 - Replace CSP `unsafe-inline` with nonces or hashes where framework support permits.
-- Add server-side image magic-byte validation.
 - Add malware scanning before supporting broader file formats.
 - Add centralized security-event monitoring and alerting.
 - Review production IAM, network boundaries, database grants, DNS, email, Redis, and R2 with live infrastructure access.

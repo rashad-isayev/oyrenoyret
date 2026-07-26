@@ -7,22 +7,27 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/src/db/client';
 import { getCurrentSession } from '@/src/modules/auth/utils/session';
-import { isStaff } from '@/src/lib/permissions';
+import { isAdmin } from '@/src/lib/permissions';
 import { DashboardShell } from '@/src/components/ui/dashboard-shell';
 import { PageHeader } from '@/src/components/ui/page-header';
+import { PageBody } from '@/src/components/ui/page-layout';
+import { PiChatCircle as ChatCircle } from 'react-icons/pi';
+import { EmptyState } from '@/src/components/ui/empty-state';
+import { getSettingsPreferences } from '@/src/lib/settings-preferences-server';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminMessagesPage() {
+  const { timeZone } = await getSettingsPreferences();
   const userId = await getCurrentSession();
   if (!userId) redirect('/login');
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { role: true, status: true },
   });
 
-  if (!user || !isStaff(user.role)) {
+  if (!user || !isAdmin(user.role) || user.status !== 'ACTIVE') {
     redirect('/dashboard');
   }
 
@@ -49,14 +54,14 @@ export default async function AdminMessagesPage() {
         description="Messages submitted from the public contact page."
       />
 
-      <main className="pt-2">
+      <PageBody spacing="none">
         {messages.length === 0 ? (
-          <div className="card-frame border-dashed bg-muted/20 px-5 py-10 text-center">
-            <p className="text-sm font-medium text-muted-foreground">No messages yet.</p>
-            <p className="mt-1 text-xs text-muted-foreground/70">
-              New messages from the contact page will appear here.
-            </p>
-          </div>
+          <EmptyState
+            title="No messages yet"
+            description="New messages from the contact page will appear here."
+            icon={<ChatCircle className="h-5 w-5" aria-hidden="true" />}
+            size="spacious"
+          />
         ) : (
           <div className="space-y-3">
             {messages.map((message) => {
@@ -79,7 +84,7 @@ export default async function AdminMessagesPage() {
                       </p>
                     </div>
                     <time className="text-xs text-muted-foreground">
-                      {message.createdAt.toLocaleString('en-US')}
+                      {message.createdAt.toLocaleString('en-US', { timeZone })}
                     </time>
                   </header>
                   <div className="mt-3 whitespace-pre-wrap text-sm text-foreground">
@@ -90,7 +95,7 @@ export default async function AdminMessagesPage() {
             })}
           </div>
         )}
-      </main>
+      </PageBody>
     </DashboardShell>
   );
 }

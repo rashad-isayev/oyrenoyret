@@ -66,13 +66,6 @@ export function isCodeExpired(expiresAt: Date): boolean {
 }
 
 /**
- * Gets the code expiry duration in milliseconds
- */
-export function getCodeExpiryDuration(): number {
-  return CODE_EXPIRY_MS;
-}
-
-/**
  * Gets the maximum number of verification attempts
  */
 export function getMaxVerificationAttempts(): number {

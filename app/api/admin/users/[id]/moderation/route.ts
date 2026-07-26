@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { RATE_LIMITS } from '@/src/config/constants';
 import { buildRateLimitResponse, checkRateLimit, getRateLimitIdentifier } from '@/src/security/rateLimiter';
 import { requireVerifiedEmailForWrite } from '@/src/modules/auth/utils/write-access';
+import { JSON_BODY_LIMITS, readJsonBody } from '@/src/security/json-body';
 
 type ModerationAction =
   | { action: 'SUSPEND'; duration: '24H' | '1W' | '1M'; reason: string }
@@ -90,8 +91,14 @@ export async function POST(
     return NextResponse.json({ error: 'You cannot moderate your own account.' }, { status: 400 });
   }
 
-  const raw = (await request.json().catch(() => null)) as unknown;
-  const parsed = moderationSchema.safeParse(raw);
+  const bodyResult = await readJsonBody(request, JSON_BODY_LIMITS.SMALL);
+  if (!bodyResult.ok) {
+    return NextResponse.json(
+      { error: bodyResult.error },
+      { status: bodyResult.status },
+    );
+  }
+  const parsed = moderationSchema.safeParse(bodyResult.value);
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
@@ -124,7 +131,7 @@ export async function POST(
     const seconds = durationToSeconds(duration);
     const until = new Date(now.getTime() + seconds * 1000);
 
-    const [updated, moderationAction] = await prisma.$transaction([
+    const [updated] = await prisma.$transaction([
       prisma.user.update({
         where: { id: targetUserId },
         data: {
@@ -158,23 +165,11 @@ export async function POST(
       }),
     ]);
 
-    await prisma.moderationNotice.create({
-      data: {
-        userId: targetUserId,
-        type: 'ACCOUNT_SUSPENDED',
-        title: 'Account suspended',
-        body: `Your account has been suspended by the moderators.\n\nIf you think it is unfair, contact support.\n\nMessage from the moderators: ${reason}`,
-        actionId: moderationAction.id,
-        linkUrl: '/contact',
-      },
-      select: { id: true },
-    });
-
     return NextResponse.json(updated, { headers: getPrivateNoStoreHeaders() });
   }
 
   if (action === 'UNSUSPEND') {
-    const [updated, moderationAction] = await prisma.$transaction([
+    const [updated] = await prisma.$transaction([
       prisma.user.update({
         where: { id: targetUserId },
         data: {
@@ -204,22 +199,11 @@ export async function POST(
       }),
     ]);
 
-    await prisma.moderationNotice.create({
-      data: {
-        userId: targetUserId,
-        type: 'ACCOUNT_UNSUSPENDED',
-        title: 'Account unsuspended',
-        body: `Your account has been unsuspended by the moderators.\n\nMessage from the moderators: ${reason}`,
-        actionId: moderationAction.id,
-      },
-      select: { id: true },
-    });
-
     return NextResponse.json(updated, { headers: getPrivateNoStoreHeaders() });
   }
 
   if (action === 'BAN') {
-    const [updated, moderationAction] = await prisma.$transaction([
+    const [updated] = await prisma.$transaction([
       prisma.user.update({
         where: { id: targetUserId },
         data: {
@@ -251,23 +235,11 @@ export async function POST(
       }),
     ]);
 
-    await prisma.moderationNotice.create({
-      data: {
-        userId: targetUserId,
-        type: 'ACCOUNT_BANNED',
-        title: 'Account banned',
-        body: `Your account has been banned by the moderators.\n\nIf you think it is unfair, contact support.\n\nMessage from the moderators: ${reason}`,
-        actionId: moderationAction.id,
-        linkUrl: '/contact',
-      },
-      select: { id: true },
-    });
-
     return NextResponse.json(updated, { headers: getPrivateNoStoreHeaders() });
   }
 
   if (action === 'UNBAN') {
-    const [updated, moderationAction] = await prisma.$transaction([
+    const [updated] = await prisma.$transaction([
       prisma.user.update({
         where: { id: targetUserId },
         data: {
@@ -296,17 +268,6 @@ export async function POST(
         select: { id: true },
       }),
     ]);
-
-    await prisma.moderationNotice.create({
-      data: {
-        userId: targetUserId,
-        type: 'ACCOUNT_UNBANNED',
-        title: 'Account unbanned',
-        body: `Your account has been unbanned by the moderators.\n\nMessage from the moderators: ${reason}`,
-        actionId: moderationAction.id,
-      },
-      select: { id: true },
-    });
 
     return NextResponse.json(updated, { headers: getPrivateNoStoreHeaders() });
   }
