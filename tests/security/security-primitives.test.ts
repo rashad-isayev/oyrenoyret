@@ -41,6 +41,11 @@ import {
 import { sanitizeRichHtmlOnServer } from '../../src/security/server-rich-html-sanitizer.ts';
 import { richTextHtmlToPlainText } from '../../src/lib/rich-text.ts';
 import {
+  htmlToPlainTextWithNewlines,
+  maybeDecodeEscapedHtml,
+  stripHtmlTags,
+} from '../../src/lib/html.ts';
+import {
   JSON_BODY_LIMITS,
   readJsonBody,
 } from '../../src/security/json-body.ts';
@@ -103,6 +108,31 @@ test('discussion formatting survives server sanitation without allowing scripts'
   assert.match(sanitized, /<sub>2<\/sub>/);
   assert.match(sanitized, /<sup>3<\/sup>/);
   assert.doesNotMatch(sanitized, /script|alert\(1\)/i);
+});
+
+test('plain-text HTML handling is linear and preserves non-tag comparison text', () => {
+  assert.equal(stripHtmlTags('<b>Hello</b> <script>ignored text</script>'), 'Hello ignored text');
+  assert.equal(stripHtmlTags('Use <, >, and = safely'), 'Use <, >, and = safely');
+  assert.equal(
+    htmlToPlainTextWithNewlines('<p>One</p><p>Two<br>Three</p>'),
+    'One\nTwo\nThree',
+  );
+  assert.equal(maybeDecodeEscapedHtml('&lt;p&gt;Hello&lt;/p&gt;'), '<p>Hello</p>');
+  assert.equal(
+    maybeDecodeEscapedHtml('&amp;lt;p&amp;gt;Hello&amp;lt;/p&amp;gt;'),
+    '<p>Hello</p>',
+  );
+  assert.equal(maybeDecodeEscapedHtml('Tom &amp; Jerry'), 'Tom &amp; Jerry');
+
+  const adversarial = '<a'.repeat(100_000);
+  assert.equal(stripHtmlTags(adversarial), adversarial);
+
+  const validationSource = readFileSync(
+    new URL('../../src/security/validation.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(validationSource, /return stripHtmlTags\(input\.trim\(\)\)\.trim\(\)/);
+  assert.doesNotMatch(validationSource, /<\\\/\?\[a-z\]\[\^>\]\*>/);
 });
 
 test('rich text limits count visible characters independently of formatting markup', () => {

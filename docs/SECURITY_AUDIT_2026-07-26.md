@@ -2,7 +2,7 @@
 
 Date: 2026-07-26
 Target: `rashad-isayev/oyrenoyret` and the local working tree
-Audit branch: `codex/development-security-audit-2026-07-26`
+Audit branch: `development/security-audit-2026-07-26`
 
 ## Executive summary
 
@@ -12,12 +12,15 @@ private object storage. The review covered the current source tree, reachable
 Git history, dependency lockfile, GitHub workflow files, database schema and
 migrations, operator scripts, and the rendered route manifest.
 
-Eleven concrete security weaknesses were confirmed and remediated. The most
+Twelve concrete security weaknesses were confirmed and remediated. The most
 important were unauthenticated access to discussion content, direct API access
 by banned accounts, teacher access to contact-message personal data, and a
 presigned-upload contract that did not cryptographically bind the declared
-file length. Regression tests and an expanded HTTP smoke test now cover the
-new boundaries.
+file length. A follow-up live CodeQL review also identified polynomial
+regular-expression denial-of-service patterns in HTML detection and
+plain-text sanitation; these were replaced with bounded-pass entity decoding
+and linear-time tag parsing. Regression tests and an expanded HTTP smoke test
+now cover the new boundaries.
 
 After remediation, no unresolved Critical or High finding was identified in
 the source and repository configuration that could be tested locally. This is
@@ -94,6 +97,7 @@ targeting the wrong database, and a malicious or compromised dependency.
 | SEC-09 | Medium | Each discussion stream performed two database reads every two seconds and used the general connection budget, enabling avoidable database pressure. | Revision checks now use one query every ten seconds and a dedicated connection budget aligned with the 55-second reconnect lifecycle. |
 | SEC-10 | Low | Discussion search accepted very long queries and arbitrarily large offsets, and unexpected database messages could be returned outside development. | Search input is limited to 200 characters, offsets are capped at 10,000, and production error responses use generic public messages. |
 | SEC-11 | High | A newly published denial-of-service advisory affected `brace-expansion` copies in the development lint chain. npm reported 15 vulnerable dependency paths, although production dependencies were not affected. | All legacy and modern lint callers are routed through the official patched 5.0.8 implementation by a compatibility adapter. Callable legacy behavior, modern exports, lint, and the production build are regression-tested. The advisory is [GHSA-mh99-v99m-4gvg](https://github.com/advisories/GHSA-mh99-v99m-4gvg). |
+| SEC-12 | High | GitHub CodeQL identified polynomial regular expressions in HTML/tag detection and plain-text sanitation on attacker-controlled input. Several expressions could repeatedly rescan long malformed strings. | Regex-based tag discovery and stripping were replaced with a single-pass parser. Escaped HTML detection now performs at most two bounded entity-decoding passes and accepts the decoded value only when the linear parser finds a real tag. Regression tests cover ordinary entities, encoded and double-encoded tags, comparison text, block breaks, and a 200,000-character malformed input. |
 
 ## Existing controls confirmed
 
@@ -138,7 +142,7 @@ The following checks passed after remediation:
   advisory data;
 - `npm run security:scan` — no credential pattern in current files;
 - `npm run security:scan:history` — no credential pattern in reachable history;
-- `npm run test:security` — all security regression tests passed;
+- `npm run test:security` — all 27 security regression tests passed;
 - `npm run typecheck` — passed;
 - `npm run lint` — passed;
 - `npx prisma validate` — schema valid;
@@ -160,20 +164,37 @@ The fetched `origin/main` and local `main` both pointed to commit
 also exposed weekly Dependabot update branches for npm production/development
 groups and SHA-pinned GitHub Actions updates.
 
-The workflow was extended so pushes to `development` and `codex/**` branches
+The workflow was extended so pushes to `development` and `development/**` branches
 run the same security job as `main`, in addition to pull-request checks. This
 lets the development audit branch receive the full remote dependency audit and
 build before any main-branch merge.
 
-Live repository settings and GitHub security-alert state could not be read
-because an authenticated GitHub administration session was not available.
-Before production approval, a repository administrator must verify:
+An authenticated read of GitHub's live security state found zero open
+Dependabot alerts and zero secret-scanning alerts. Secret scanning, push
+protection, Dependabot security updates, CodeQL default setup, and private
+vulnerability reporting are enabled. GitHub's broader non-provider secret
+patterns and validity checks remained unavailable/disabled for this repository
+when requested.
 
-- `main` branch protection or rulesets, required reviews, required security
-  status checks, and force-push/deletion restrictions;
-- secret scanning and push protection;
-- Dependabot alerts and security updates;
-- private vulnerability reporting;
+CodeQL had nine open High alerts on `main` at the audited main commit: five
+polynomial HTML regular expressions, three incomplete multi-character
+sanitization findings, and one clear-text operator-log finding. The development
+branch removes or replaces every reported location, including the SEC-12
+follow-up remediation. Those alerts correctly remain open against `main` until
+the remediated code is validated in development and later merged; they must not
+be dismissed as false positives merely to produce a clean dashboard.
+
+The original security workflow completed successfully against remediation
+commit `4650ab576beacf33e849b8bf2a434eb56c51c8bd`. A subsequent branch rename
+required the `development/**` trigger correction recorded in this report.
+
+Classic branch protection is enabled for `main`, applies to administrators,
+requires linear history, and denies force pushes and deletion. It does not yet
+require a pull request, approving review, or named status checks because those
+repository workflow choices should be tested without risking a lockout.
+Before production approval, a repository administrator must still verify:
+
+- the desired pull-request approval count and required GitHub status checks;
 - collaborator and GitHub App access; and
 - strong authentication for every maintainer.
 

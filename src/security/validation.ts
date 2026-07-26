@@ -12,7 +12,11 @@
  */
 
 import { z } from 'zod';
-import { maybeDecodeEscapedHtml } from '@/src/lib/html';
+import {
+  htmlToPlainTextWithNewlines,
+  maybeDecodeEscapedHtml,
+  stripHtmlTags,
+} from '@/src/lib/html';
 import { getR2ObjectPrefix } from '@/src/security/object-key';
 import { sanitizeRichHtmlOnServer } from '@/src/security/server-rich-html-sanitizer';
 
@@ -56,9 +60,7 @@ export const dateOfBirthSchema = z.date().refine(
  * @returns Sanitized string (trimmed, no HTML)
  */
 export function sanitizeInput(input: string): string {
-  const trimmed = input.trim();
-  // Strip real HTML tags only (avoid eating plain text like "Use <, >, =").
-  return trimmed.replace(/<\/?[a-z][^>]*>/gi, '').trim();
+  return stripHtmlTags(input.trim()).trim();
 }
 
 function escapeHtml(raw: string) {
@@ -74,12 +76,7 @@ function sanitizeToPlainHtmlWithBreaks(input: string) {
   const dirty = maybeDecodeEscapedHtml(String(input ?? '').trim());
   if (!dirty) return '';
 
-  const withBreaks = dirty
-    .replace(/<\s*br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|blockquote|pre)>/gi, '\n');
-  const stripped = withBreaks.replace(/<[^>]*>/g, '');
-  const normalized = stripped.replace(/\n{3,}/g, '\n\n').trim();
-  return escapeHtml(normalized).replace(/\n/g, '<br>');
+  return escapeHtml(htmlToPlainTextWithNewlines(dirty)).replace(/\n/g, '<br>');
 }
 
 function filterInlineStyle(style: string) {
