@@ -185,16 +185,18 @@ the remediated code is validated in development and later merged; they must not
 be dismissed as false positives merely to produce a clean dashboard.
 
 The original security workflow completed successfully against remediation
-commit `4650ab576beacf33e849b8bf2a434eb56c51c8bd`. A subsequent branch rename
-required the `development/**` trigger correction recorded in this report.
+commit `4650ab576beacf33e849b8bf2a434eb56c51c8bd`. After the branch rename and
+`development/**` trigger correction, the full workflow also passed against
+follow-up commit `672367db64275c70646e0394dd55fd29fa184758`.
 
 Classic branch protection is enabled for `main`, applies to administrators,
 requires linear history, and denies force pushes and deletion. It does not yet
-require a pull request, approving review, or named status checks because those
-repository workflow choices should be tested without risking a lockout.
-Before production approval, a repository administrator must still verify:
+require an approving review, but it does require branches to be current and
+pass the `verify`, `Analyze (javascript-typescript)`, and `Analyze (actions)`
+checks before updating `main`. Before production approval, a repository
+administrator must still verify:
 
-- the desired pull-request approval count and required GitHub status checks;
+- the desired pull-request approval count;
 - collaborator and GitHub App access; and
 - strong authentication for every maintainer.
 
