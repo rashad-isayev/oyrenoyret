@@ -15,6 +15,11 @@ import { hasValidBearerSecret } from '../../src/security/bearer-secret.ts';
 import { getR2ObjectPrefix } from '../../src/security/object-key.ts';
 import { getAnnouncementImageSrc } from '../../src/lib/announcement-images.ts';
 import { isTrustedWriteRequest } from '../../src/security/write-request.ts';
+import {
+  isProductionDeployment,
+  requireDatabaseUrls,
+  resolveDatabaseUrls,
+} from '../../scripts/database-url.mjs';
 
 function setEnvironment(name: string, value: string | undefined) {
   if (value === undefined) delete process.env[name];
@@ -54,6 +59,48 @@ test('internal paths reject external and ambiguous navigation targets', () => {
   assert.equal(sanitizeInternalPath('/\\attacker.invalid'), null);
   assert.equal(sanitizeInternalPath('javascript:alert(1)'), null);
   assert.equal(sanitizeInternalPath('https://attacker.invalid'), null);
+});
+
+test('Vercel database variables resolve consistently for builds and migrations', () => {
+  const prismaNamed = resolveDatabaseUrls({
+    NODE_ENV: 'test',
+    DATABASE_PRISMA_DATABASE_URL: 'postgresql://app.example/database',
+  });
+  assert.equal(prismaNamed.application?.name, 'DATABASE_PRISMA_DATABASE_URL');
+  assert.equal(prismaNamed.migration?.name, 'DATABASE_PRISMA_DATABASE_URL');
+
+  const split = requireDatabaseUrls({
+    NODE_ENV: 'test',
+    POSTGRES_URL: 'postgresql://pool.example/database',
+    POSTGRES_URL_NON_POOLING: 'postgresql://direct.example/database',
+  });
+  assert.equal(split.application?.name, 'POSTGRES_URL');
+  assert.equal(split.migration?.name, 'POSTGRES_URL_NON_POOLING');
+
+  assert.throws(
+    () => requireDatabaseUrls({ NODE_ENV: 'test' }),
+    /No application database URL is configured/,
+  );
+});
+
+test('Vercel previews never inherit production-only migration requirements', () => {
+  assert.equal(
+    isProductionDeployment({
+      NODE_ENV: 'production',
+      VERCEL: '1',
+      VERCEL_ENV: 'preview',
+    }),
+    false,
+  );
+  assert.equal(
+    isProductionDeployment({
+      NODE_ENV: 'production',
+      VERCEL: '1',
+      VERCEL_ENV: 'production',
+    }),
+    true,
+  );
+  assert.equal(isProductionDeployment({ NODE_ENV: 'production' }), true);
 });
 
 test('password policy enforces strength and bcrypt length limit', () => {
