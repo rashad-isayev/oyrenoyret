@@ -1,5 +1,9 @@
 import { execSync } from 'node:child_process';
-import { requireDatabaseUrls, resolveDatabaseUrls } from './database-url.mjs';
+import {
+  isProductionDeployment,
+  requireDatabaseUrls,
+  resolveDatabaseUrls,
+} from './database-url.mjs';
 
 // Runs the production build steps used by Vercel.
 const run = (command, options = {}) => {
@@ -9,8 +13,7 @@ const run = (command, options = {}) => {
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
-  const isProduction =
-    process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
+  const isProduction = isProductionDeployment(process.env);
   const requireMigrations = process.env.REQUIRE_DB_MIGRATIONS === '1' || isProduction;
   const skipMigrations = process.env.SKIP_DB_MIGRATIONS === '1';
 

@@ -16,6 +16,7 @@ import { getR2ObjectPrefix } from '../../src/security/object-key.ts';
 import { getAnnouncementImageSrc } from '../../src/lib/announcement-images.ts';
 import { isTrustedWriteRequest } from '../../src/security/write-request.ts';
 import {
+  isProductionDeployment,
   requireDatabaseUrls,
   resolveDatabaseUrls,
 } from '../../scripts/database-url.mjs';
@@ -80,6 +81,26 @@ test('Vercel database variables resolve consistently for builds and migrations',
     () => requireDatabaseUrls({ NODE_ENV: 'test' }),
     /No application database URL is configured/,
   );
+});
+
+test('Vercel previews never inherit production-only migration requirements', () => {
+  assert.equal(
+    isProductionDeployment({
+      NODE_ENV: 'production',
+      VERCEL: '1',
+      VERCEL_ENV: 'preview',
+    }),
+    false,
+  );
+  assert.equal(
+    isProductionDeployment({
+      NODE_ENV: 'production',
+      VERCEL: '1',
+      VERCEL_ENV: 'production',
+    }),
+    true,
+  );
+  assert.equal(isProductionDeployment({ NODE_ENV: 'production' }), true);
 });
 
 test('password policy enforces strength and bcrypt length limit', () => {

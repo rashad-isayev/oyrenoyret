@@ -51,3 +51,10 @@ export function requireDatabaseUrls(env = process.env) {
   }
   return resolved;
 }
+
+export function isProductionDeployment(env = process.env) {
+  if (env.VERCEL === '1' || env.VERCEL_ENV) {
+    return env.VERCEL_ENV === 'production';
+  }
+  return env.NODE_ENV === 'production';
+}
