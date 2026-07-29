@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process';
+import { requireDatabaseUrls, resolveDatabaseUrls } from './database-url.mjs';
 
 // Runs the production build steps used by Vercel.
 const run = (command, options = {}) => {
@@ -17,14 +18,16 @@ async function main() {
     throw new Error('SKIP_DB_MIGRATIONS is not allowed for production builds.');
   }
 
+  const databaseUrls = isProduction
+    ? requireDatabaseUrls(process.env)
+    : resolveDatabaseUrls(process.env);
+  const applicationDatabaseUrl = databaseUrls.application?.value;
+  const buildEnv = applicationDatabaseUrl
+    ? { ...process.env, DATABASE_URL: applicationDatabaseUrl }
+    : process.env;
+
   if (!skipMigrations) {
-    const migrationDatabaseUrl =
-      process.env.MIGRATION_DATABASE_URL ??
-      process.env.DIRECT_DATABASE_URL ??
-      process.env.POSTGRES_URL_NON_POOLING ??
-      process.env.POSTGRES_URL ??
-      process.env.DIRECT_URL ??
-      process.env.DATABASE_URL;
+    const migrationDatabaseUrl = databaseUrls.migration?.value;
 
     const env = migrationDatabaseUrl
       ? { ...process.env, DATABASE_URL: migrationDatabaseUrl }
@@ -62,7 +65,6 @@ async function main() {
         console.warn(
           `[vercel-build] prisma migrate deploy failed; retrying in ${waitMs}ms (attempt ${attempt}/${maxAttempts})...`
         );
-        // eslint-disable-next-line no-await-in-loop
         await delay(waitMs);
       }
     }
@@ -80,9 +82,9 @@ async function main() {
     console.warn('[vercel-build] SKIP_DB_MIGRATIONS=1; skipping prisma migrate deploy.');
   }
 
-  if (isProduction) run('node scripts/validate-env.mjs');
-  run('npx prisma generate');
-  run('npx next build --webpack');
+  if (isProduction) run('node scripts/validate-env.mjs', { env: buildEnv });
+  run('npx prisma generate', { env: buildEnv });
+  run('npx next build --webpack', { env: buildEnv });
 }
 
 main().catch((error) => {

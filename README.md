@@ -180,6 +180,8 @@ This repo includes a Vercel-specific build script (`npm run vercel-build`) and a
 
 - runs `prisma migrate deploy` with retries for transient database connection errors
 - validates production configuration and fails the build if validation or migrations fail
+- accepts `DATABASE_URL`, `DATABASE_PRISMA_DATABASE_URL`, or Vercel Postgres
+  connection variables; a direct/non-pooled URL is preferred for migrations
 
 If your Vercel Project Settings override the build command, set **Build Command** to `npm run vercel-build` (and remove any `npx prisma migrate deploy && ...` build command).
 

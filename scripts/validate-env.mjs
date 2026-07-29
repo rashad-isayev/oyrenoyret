@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import './load-env.mjs';
+import { resolveDatabaseUrls } from './database-url.mjs';
 
 const errors = [];
 const value = (name) => String(process.env[name] ?? '').trim();
@@ -24,7 +25,7 @@ function requireHttpsUrl(name, { originOnly = false } = {}) {
 
 const objectPrefixPattern = /^[a-z0-9_-]+(?:\/[a-z0-9_-]+)*$/i;
 
-const databaseUrl = value('DATABASE_URL');
+const databaseUrl = resolveDatabaseUrls(process.env).application?.value ?? '';
 try {
   const parsed = new URL(databaseUrl);
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) throw new Error('not postgres');
